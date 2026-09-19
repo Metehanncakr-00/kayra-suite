@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KAYRA Suite",
+  "version": "1.0.0",
+  "identifier": "com.kayrastudio.suite",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "belge",
+        "title": "KAYRA Belge - PDF & KVKK",
+        "url": "belge.html",
+        "width": 1400,
+        "height": 900,
+        "decorations": true,
+        "resizable": true
+      },
+      {
+        "label": "tuval",
+        "title": "KAYRA Tuval - Grafik & Tasarım",
+        "url": "tuval.html",
+        "width": 1400,
+        "height": 900,
+        "decorations": true,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": 
+"dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDMzE0NTlEREI5MkU1NUYKUldSZjVaTGJuVVV4akxiZGxhNXZhcHowNGJCTTlEMnZEdHhhZUVGUVEzQzY4aTgrY1FvejA0WmEK",
+      "endpoints": [
+        "https://github.com/KULLANICI_ADINIZ/REPO_ADINIZ/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
