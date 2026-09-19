@@ -1,0 +1,52 @@
+name: "KAYRA Suite Otomatik Derleme"
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            args: ''
+          - platform: 'ubuntu-22.04'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js Kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Rust Kurulumu
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux Bağımlılıkları (Pardus / Debian)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: NPM Paketlerini Kur
+        run: npm install
+
+      - name: Tauri Uygulamasını Derle ve Yayınla
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'KAYRA Suite v__VERSION__'
+          releaseBody: 'KAYRA Suite güncel sürüm paketleri.'
+          releaseDraft: false
+          prerelease: false
