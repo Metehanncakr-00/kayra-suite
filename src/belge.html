@@ -20,6 +20,8 @@
     </script>
     <!-- PDF-lib -->
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <!-- PDF-lib Unicode font embedding (Türkçe karakterler dahil) -->
+    <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -97,7 +99,7 @@
         .pdf-text-layer {
             position: absolute;
             left: 0; top: 0; right: 0; bottom: 0;
-            overflow: hidden; opacity: 0.25; line-height: 1;
+            overflow: hidden; opacity: 1; line-height: 1;
             z-index: 10; user-select: text !important;
             -webkit-user-select: text !important;
         }
@@ -108,6 +110,80 @@
         .pdf-text-layer ::selection {
             background: rgba(37, 99, 235, 0.6) !important;
             color: transparent !important;
+        }
+        #redaction-canvas { z-index: 20; }
+        .pdf-text-layer.redaction-text-select-active {
+            z-index: 24;
+            pointer-events: auto;
+            cursor: text;
+        }
+        .pdf-text-layer.redaction-text-select-active > span {
+            pointer-events: auto;
+            cursor: text;
+        }
+
+        /* Canva tarzı doğrudan PDF metin düzenleme katmanı */
+        .pdf-edit-layer {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            z-index: 34;
+            pointer-events: none;
+            line-height: 1;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .pdf-edit-layer > span.pdf-edit-block {
+            color: transparent !important;
+            position: absolute;
+            white-space: pre;
+            transform-origin: 0% 0%;
+            pointer-events: auto;
+            cursor: text;
+            border-radius: 2px;
+            outline: 1px dashed transparent;
+            outline-offset: 2px;
+            transition: outline-color 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+        }
+        .pdf-edit-layer > span.pdf-edit-block:hover {
+            outline-color: rgba(37, 99, 235, 0.95);
+            background: rgba(59, 130, 246, 0.08);
+        }
+        .pdf-edit-layer.show-all-blocks > span.pdf-edit-block {
+            outline-color: rgba(59, 130, 246, 0.5);
+            background: rgba(59, 130, 246, 0.045);
+        }
+        .pdf-edit-layer > span.pdf-edit-block.pdf-edit-active,
+        .pdf-edit-layer > span.pdf-edit-block.pdf-edit-patched {
+            color: var(--pdf-edit-color, #000000) !important;
+            background: #ffffff;
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+            z-index: 3;
+        }
+        .pdf-edit-layer > span.pdf-edit-block.pdf-edit-active {
+            min-width: 1.25em;
+            min-height: 1em;
+            user-select: text;
+            -webkit-user-select: text;
+            cursor: text;
+        }
+        .pdf-edit-layer > span.pdf-edit-block.pdf-edit-busy {
+            cursor: wait;
+            opacity: 0.65;
+        }
+        #pdf-text-edit-toolbar button.mode-active,
+        #redaction-toolbar button.mode-active {
+            background-color: #2563eb !important;
+            border-color: #60a5fa !important;
+            color: #ffffff !important;
+            box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.25);
+        }
+        #pdf-text-edit-toolbar button:not(.mode-active):not(#btn-pdf-edit-finish) {
+            background-color: #27272a !important;
+            border-color: #38383f !important;
+            color: #d4d4d8 !important;
         }
 
         .thumbnail-card {
@@ -127,6 +203,42 @@
             box-shadow: 0 0 0 1px #e11d48, 0 0 16px rgba(225, 29, 72, 0.45) !important;
             background-color: #20181c !important;
             opacity: 1 !important; 
+        }
+
+        /* Acrobat benzeri kesintisiz, bağımsız çoklu sayfa akışı */
+        #page-flow {
+            width: max-content;
+            min-width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            padding: 4px 0 32px;
+        }
+        #page-flow.hidden { display: none; }
+        .page-container {
+            position: relative;
+            flex: none;
+            background: #ffffff;
+            border: 1px solid #27272a;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.65);
+            transition: box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .page-container.page-active {
+            border-color: rgba(225, 29, 72, 0.7);
+            box-shadow: 0 10px 42px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(225, 29, 72, 0.35);
+        }
+        .pdf-page-canvas { display: block; background: #ffffff; }
+        .page-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #71717a;
+            font-size: 12px;
+            background: #f4f4f5;
+            pointer-events: none;
         }
 
         .text-box-selected { outline: 2px solid #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25); }
@@ -314,6 +426,7 @@
                         <div class="dd-divider"></div>
                         <div class="dd-item" onclick="copyDocumentText()"><div><i class="fa-regular fa-copy dd-icon"></i> Sayfa Metnini Kopyala</div> <span class="dd-shortcut">Ctrl+C</span></div>
                         <div class="dd-item" onclick="spawnInteractiveTextBox()"><div><i class="fa-solid fa-paste dd-icon"></i> Metin Olarak Yapıştır</div> <span class="dd-shortcut">Ctrl+V</span></div>
+                        <div class="dd-item" onclick="togglePdfTextEditMode()"><div><i class="fa-solid fa-pen-to-square dd-icon text-blue-400"></i> Metinleri Düzenle (Canva Modu)</div></div>
                         <div class="dd-divider"></div>
                         <div class="dd-item" onclick="openDetailedFindReplaceModal()"><div><i class="fa-solid fa-magnifying-glass dd-icon text-cyan-400"></i> Bul ve Değiştir</div> <span class="dd-shortcut">Ctrl+H</span></div>
                     </div>
@@ -552,6 +665,22 @@
                     </button>
                 </div>
 
+                <div id="pdf-text-edit-toolbar" class="hidden absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-[#202024]/95 border border-blue-500/40 rounded-xl shadow-2xl px-2.5 py-2 items-center gap-2 text-xs backdrop-blur-md whitespace-nowrap">
+                    <span class="font-bold text-blue-300 flex items-center px-1.5">
+                        <i class="fa-solid fa-pen-to-square mr-1.5"></i> Canva Metin Modu
+                    </span>
+                    <div class="w-px h-6 bg-kayra-border"></div>
+                    <button id="btn-pdf-edit-single" onclick="setPdfTextEditViewMode('single')" class="mode-active px-3 py-1.5 rounded-lg border border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500 transition cursor-pointer" title="Bir metin bloğuna tıklayıp doğrudan düzenleyin">
+                        <i class="fa-solid fa-arrow-pointer mr-1.5"></i> Tek Tek Seç
+                    </button>
+                    <button id="btn-pdf-edit-all" onclick="setPdfTextEditViewMode('all')" class="px-3 py-1.5 rounded-lg border border-kayra-border bg-kayra-surface hover:bg-kayra-hover text-gray-200 transition cursor-pointer" title="Sayfadaki bütün algılanan metin bloklarını gösterir">
+                        <i class="fa-solid fa-border-all mr-1.5"></i> Tüm Blokları Göster
+                    </button>
+                    <button id="btn-pdf-edit-finish" onclick="finishPdfTextEditMode()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer shadow">
+                        <i class="fa-solid fa-check mr-1.5"></i> Bitir & PDF'e Kaydet
+                    </button>
+                </div>
+
                 <div id="redaction-toolbar" class="h-14 bg-red-950/90 border-b border-red-800 hidden items-center justify-between px-4 shrink-0 shadow-lg z-20 backdrop-blur">
                     <div class="flex items-center space-x-4 text-gray-200 text-xs">
                         <span class="font-bold text-red-400 flex items-center"><i class="fa-solid fa-radar mr-1.5 animate-pulse"></i> OTO-TARA:</span>
@@ -565,8 +694,16 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
+                        <div class="flex items-center p-0.5 rounded-lg border border-red-800/70 bg-black/30" title="Metni sürükleyerek veya serbest alan çizerek sansür alanı oluşturun">
+                            <button id="btn-redact-text-select" onclick="setRedactionSelectionMode('text')" class="mode-active px-2.5 py-1 rounded-md text-[11px] text-white transition cursor-pointer">
+                                <i class="fa-solid fa-i-cursor mr-1"></i> Metin Seç
+                            </button>
+                            <button id="btn-redact-area-select" onclick="setRedactionSelectionMode('area')" class="px-2.5 py-1 rounded-md text-[11px] text-gray-300 hover:bg-red-900/70 transition cursor-pointer">
+                                <i class="fa-regular fa-square mr-1"></i> Alan Çiz
+                            </button>
+                        </div>
                         <button onclick="clearRedactions()" class="px-3 py-1 bg-black/40 hover:bg-black/60 text-gray-300 rounded transition text-xs border border-red-900/50 cursor-pointer">Temizle</button>
-                        <button onclick="applyRedaction()" class="px-4 py-1.5 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 text-white font-bold rounded shadow transition text-xs flex items-center border border-red-500/30 cursor-pointer">
+                        <button id="btn-apply-redaction" onclick="applyRedaction()" class="px-4 py-1.5 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 text-white font-bold rounded shadow transition text-xs flex items-center border border-red-500/30 cursor-pointer">
                             <i class="fa-solid fa-shield-halved mr-1.5"></i> Sansürü Kalıcı Uygula
                         </button>
                     </div>
@@ -593,9 +730,13 @@
                         </button>
                     </div>
 
-                    <!-- ÇALIŞMA ALANI & KANVAS -->
-                    <div id="canvas-wrapper" class="relative shadow-[0_10px_40px_rgba(0,0,0,0.65)] border border-gray-800 bg-white mx-auto">
-                        <canvas id="pdf-render-canvas" class="block"></canvas>
+                    <!-- ÇALIŞMA ALANI: Her PDF sayfası bağımsız bir .page-container ve canvas olarak buraya eklenir. -->
+                    <div id="page-flow" class="hidden" aria-label="PDF sayfaları"></div>
+
+                    <!-- Mevcut düzenleme katmanları için görünmez taşıyıcı. Aktif sayfa değiştikçe
+                         bu katmanlar ilgili .page-container üzerine taşınır. -->
+                    <div id="canvas-wrapper" class="hidden relative">
+                        <canvas id="pdf-render-canvas" class="hidden"></canvas>
                         <canvas id="redaction-canvas" class="absolute top-0 left-0 w-full h-full cursor-crosshair hidden"></canvas>
 
                         <div id="pdf-text-layer" class="pdf-text-layer"></div>
@@ -766,6 +907,11 @@
                     <button onclick="spawnInteractiveTextBox()" id="btn-add-text" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
                         <div class="w-7 h-7 rounded bg-gray-800 flex items-center justify-center text-gray-300 mr-3 shrink-0 group-hover:text-blue-400 transition"><i class="fa-solid fa-i-cursor text-xs"></i></div>
                         <div><div class="text-gray-200 font-semibold text-xs">Metin Ekle</div><div class="text-gray-500 text-[10px]">Paragraf veya başlık yerleştir</div></div>
+                    </button>
+
+                    <button onclick="togglePdfTextEditMode()" id="btn-edit-pdf-text" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
+                        <div class="w-7 h-7 rounded bg-blue-950/80 flex items-center justify-center text-blue-300 mr-3 shrink-0 group-hover:text-white group-hover:bg-blue-600 transition"><i class="fa-solid fa-pen-to-square text-xs"></i></div>
+                        <div><div class="text-gray-200 font-semibold text-xs">Metinleri Düzenle</div><div class="text-gray-500 text-[10px]">Canva modu: PDF yazısına tıkla</div></div>
                     </button>
 
                     <button onclick="triggerImageUpload()" id="btn-add-image" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
@@ -1102,6 +1248,7 @@
         const imageFileInput = document.getElementById('image-file-input');
         
         const emptyState = document.getElementById('empty-state');
+        const pageFlow = document.getElementById('page-flow');
         const canvasWrapper = document.getElementById('canvas-wrapper');
         const mainCanvas = document.getElementById('pdf-render-canvas');
         const mainCtx = mainCanvas.getContext('2d');
@@ -1115,8 +1262,13 @@
         const zoomIndicator = document.getElementById('zoom-indicator');
         const btnExport = document.getElementById('btn-export');
         const btnRedact = document.getElementById('btn-redact');
+        const btnEditPdfText = document.getElementById('btn-edit-pdf-text');
         const btnUndo = document.getElementById('btn-undo');
         const btnRedo = document.getElementById('btn-redo');
+        const pdfTextEditToolbar = document.getElementById('pdf-text-edit-toolbar');
+        const btnPdfEditSingle = document.getElementById('btn-pdf-edit-single');
+        const btnPdfEditAll = document.getElementById('btn-pdf-edit-all');
+        const btnPdfEditFinish = document.getElementById('btn-pdf-edit-finish');
 
         const leftSidebar = document.getElementById('left-sidebar');
         const rightSidebar = document.getElementById('right-sidebar');
@@ -1192,6 +1344,12 @@
         let currentPageNum = 1;
         let currentZoom = 1.0;
         let unscaledViewport = null;
+        let pageRenderGeneration = 0;
+        let pageRenderTasks = new Map();
+        let pageViewportMap = new Map();
+        let pageVisibilityObserver = null;
+        let pageVisibilityScores = new Map();
+        let activeOverlayRenderToken = 0;
 
         let pdfHistory = [];
         let historyIndex = -1;
@@ -1199,7 +1357,23 @@
         let isRedactionMode = false;
         let isDrawing = false;
         let startX = 0, startY = 0;
+        let redactionDrawingPage = 0;
         let redactionZones = {};
+        let mupdfModulePromise = null;
+        let isApplyingRedaction = false;
+        let isScanningRedactions = false;
+        let redactionSelectionMode = 'text';
+
+        let pdfTextEditMode = false;
+        let pdfTextEditViewMode = 'single';
+        let pdfTextEditLayerToken = 0;
+        let activePdfTextEditor = null;
+        let pendingPdfTextEditorActivation = null;
+        let isCommittingPdfTextEdit = false;
+        let pdfTextEditCommitPromise = null;
+        let pdfTextEditDirty = false;
+        const pdfEditFontByteCache = new Map();
+        const pdfEditEmbeddedFontCache = new WeakMap();
 
         let currentSearchResults = [];
         let currentSearchIndex = -1;
@@ -1803,14 +1977,17 @@
             if (!pdfjsDoc || pdfjsDoc.numPages === 0) return;
             thumbnailContainer.innerHTML = '';
 
+            const dpr = Math.max(1, window.devicePixelRatio || 1);
+
             for (let i = 1; i <= pdfjsDoc.numPages; i++) {
                 const isActive = (i === currentPageNum);
                 const card = document.createElement('div');
                 card.className = `thumbnail-card p-2 cursor-pointer flex flex-col items-center ${isActive ? 'thumbnail-active' : ''}`;
+                card.dataset.pageNumber = i;
+                card.onclick = () => goToPage(i, true);
                 
                 const thumbCanvas = document.createElement('canvas');
                 thumbCanvas.className = 'w-full bg-white rounded-md shadow-sm border border-gray-700/60 mb-2.5';
-                thumbCanvas.onclick = () => { currentPageNum = i; switchPage(); };
                 card.appendChild(thumbCanvas);
 
                 const footer = document.createElement('div');
@@ -1840,10 +2017,16 @@
 
                 try {
                     const page = await pdfjsDoc.getPage(i);
-                    const vp = page.getViewport({ scale: 0.35 });
-                    thumbCanvas.width = vp.width; 
-                    thumbCanvas.height = vp.height;
-                    await page.render({ canvasContext: thumbCanvas.getContext('2d'), viewport: vp }).promise;
+                    const cssViewport = page.getViewport({ scale: 0.35 });
+                    const renderViewport = page.getViewport({ scale: 0.35 * dpr });
+                    thumbCanvas.width = Math.ceil(renderViewport.width);
+                    thumbCanvas.height = Math.ceil(renderViewport.height);
+                    thumbCanvas.style.width = `${cssViewport.width}px`;
+                    thumbCanvas.style.height = `${cssViewport.height}px`;
+                    await page.render({
+                        canvasContext: thumbCanvas.getContext('2d'),
+                        viewport: renderViewport
+                    }).promise;
                 } catch(e) {}
             }
         }
@@ -1915,6 +2098,12 @@
             pdfjsDoc = null;
             currentPdfBytes = null;
             currentPageNum = 0;
+            pageRenderGeneration++;
+            pageRenderTasks.forEach(task => { try { task.cancel(); } catch (e) {} });
+            pageRenderTasks.clear();
+            pageViewportMap.clear();
+            pageFlow.innerHTML = '';
+            pageFlow.classList.add('hidden');
             canvasWrapper.classList.add('hidden');
             emptyState.classList.add('hidden');
             document.getElementById('no-pages-state').classList.remove('hidden');
@@ -2051,7 +2240,7 @@
         }
 
         function clearSearchHighlights() {
-            searchHighlightLayer.innerHTML = '';
+            if (searchHighlightLayer) searchHighlightLayer.innerHTML = '';
         }
 
         function normalizeSearchText(str, ignoreDiacritics = true, matchCase = false) {
@@ -2082,12 +2271,11 @@
             const matchCase = findMatchCase.checked;
             const ignoreDiacritics = findIgnoreDiacritics.checked;
             currentSearchResults = [];
-            const pw = unscaledViewport ? unscaledViewport.width : 595.28;
-            const ph = unscaledViewport ? unscaledViewport.height : 841.89;
-
             for (let pNum = 1; pNum <= pdfjsDoc.numPages; pNum++) {
                 const page = await pdfjsDoc.getPage(pNum);
                 const tc = await page.getTextContent();
+                const baseViewport = page.getViewport({ scale: 1 });
+                const ph = baseViewport.height;
 
                 tc.items.forEach((item, itemIdx) => {
                     const originalStr = item.str;
@@ -2141,22 +2329,19 @@
             floatingSearchCount.innerText = `${index + 1}/${currentSearchResults.length}`;
             modalFindStatus.innerText = `${index + 1} / ${currentSearchResults.length} gösteriliyor.`;
 
-            if (currentPageNum !== match.page) {
-                currentPageNum = match.page;
-                await renderMainPage();
-                await renderThumbnails();
-                updatePageIndicator();
-            }
-
+            await goToPage(match.page, true);
+            await renderActivePageOverlays();
             renderPageSearchHighlights(match.page, index);
         }
 
         function renderPageSearchHighlights(pageNumber, activeMatchIndex) {
             clearSearchHighlights();
-            if (!unscaledViewport || !mainCanvas.offsetWidth) return;
+            const activeCanvas = getPageCanvas(pageNumber);
+            const baseViewport = pageViewportMap.get(pageNumber);
+            if (!baseViewport || !activeCanvas || !activeCanvas.offsetWidth) return;
 
-            const scaleX = mainCanvas.offsetWidth / unscaledViewport.width;
-            const scaleY = mainCanvas.offsetHeight / unscaledViewport.height;
+            const scaleX = activeCanvas.offsetWidth / baseViewport.width;
+            const scaleY = activeCanvas.offsetHeight / baseViewport.height;
 
             currentSearchResults.forEach((m, idx) => {
                 if (m.page !== pageNumber) return;
@@ -2271,7 +2456,8 @@
             handles.forEach(h => h.style.display = 'block');
             textActionPill.style.display = 'flex';
 
-            textState.x = Math.max(30, Math.round((mainCanvas.offsetWidth - 280) / 2));
+            const activeCanvas = getPageCanvas(currentPageNum);
+            textState.x = Math.max(30, Math.round(((activeCanvas ? activeCanvas.offsetWidth : 595) - 280) / 2));
             textState.y = 120;
             textState.width = 280;
             textState.rotation = 0;
@@ -2301,7 +2487,9 @@
             const embedded = await pdfLibDoc.embedPng(pngBytes);
             const page = pdfLibDoc.getPage(currentPageNum - 1);
             const { width: pw, height: ph } = page.getSize();
-            const sx = pw / mainCanvas.offsetWidth; const sy = ph / mainCanvas.offsetHeight;
+            const activeCanvas = getPageCanvas(currentPageNum);
+            if (!activeCanvas || !activeCanvas.offsetWidth || !activeCanvas.offsetHeight) return;
+            const sx = pw / activeCanvas.offsetWidth; const sy = ph / activeCanvas.offsetHeight;
 
             page.drawImage(embedded, {
                 x: textState.x * sx, y: ph - (textState.y * sy) - ((th / dpr) * sy),
@@ -2354,7 +2542,8 @@
             interactiveImagePreview.src = pc.toDataURL('image/png');
             imageState.width = 240; 
             imageState.height = Math.round(240 / imageState.aspectRatio);
-            imageState.x = Math.max(30, Math.round((mainCanvas.offsetWidth - 240) / 2));
+            const activeCanvas = getPageCanvas(currentPageNum);
+            imageState.x = Math.max(30, Math.round(((activeCanvas ? activeCanvas.offsetWidth : 595) - 240) / 2));
             imageState.y = 120;
             applyInteractiveImagePositionAndStyles();
             refreshLayersList();
@@ -2379,7 +2568,9 @@
             const embedded = await pdfLibDoc.embedPng(await blob.arrayBuffer());
             const page = pdfLibDoc.getPage(currentPageNum - 1);
             const { width: pw, height: ph } = page.getSize();
-            const sx = pw / mainCanvas.offsetWidth; const sy = ph / mainCanvas.offsetHeight;
+            const activeCanvas = getPageCanvas(currentPageNum);
+            if (!activeCanvas || !activeCanvas.offsetWidth || !activeCanvas.offsetHeight) return;
+            const sx = pw / activeCanvas.offsetWidth; const sy = ph / activeCanvas.offsetHeight;
 
             page.drawImage(embedded, {
                 x: imageState.x * sx, y: ph - (imageState.y * sy) - (imageState.height * sy),
@@ -2410,12 +2601,20 @@
         }
 
         async function undoAction() {
+            if (pdfTextEditMode) {
+                const finished = await finishPdfTextEditMode({ silent: true });
+                if (!finished) return;
+            }
             if (historyIndex > 0) {
                 historyIndex--; currentPdfBytes = new Uint8Array(pdfHistory[historyIndex]);
                 await loadPdfState(); updateUndoRedoButtons(); showToast("Geri alındı", "bg-gray-700");
             }
         }
         async function redoAction() {
+            if (pdfTextEditMode) {
+                const finished = await finishPdfTextEditMode({ silent: true });
+                if (!finished) return;
+            }
             if (historyIndex < pdfHistory.length - 1) {
                 historyIndex++; currentPdfBytes = new Uint8Array(pdfHistory[historyIndex]);
                 await loadPdfState(); updateUndoRedoButtons(); showToast("Yinelendi", "bg-gray-700");
@@ -2442,6 +2641,9 @@
 
         async function newDocument() {
             try {
+                if (pdfTextEditCommitPromise) await pdfTextEditCommitPromise;
+                resetPdfTextEditUI();
+                if (isRedactionMode) await toggleRedactionMode();
                 pdfLibDoc = await PDFLib.PDFDocument.create();
                 pdfLibDoc.addPage([595.28, 841.89]);
                 currentPdfBytes = await pdfLibDoc.save();
@@ -2471,6 +2673,9 @@
         function processFile(file) {
             const r = new FileReader();
             r.onload = async function(e) {
+                if (pdfTextEditCommitPromise) await pdfTextEditCommitPromise;
+                resetPdfTextEditUI();
+                if (isRedactionMode) await toggleRedactionMode();
                 currentPdfBytes = new Uint8Array(e.target.result);
                 redactionZones = {}; pdfHistory = []; historyIndex = -1;
                 document.getElementById('doc-title').innerText = file.name;
@@ -2482,13 +2687,15 @@
         async function loadPdfState() {
             try {
                 if (!currentPdfBytes || currentPdfBytes.byteLength === 0) return;
+                cancelPageRenders();
                 pdfLibDoc = await PDFLib.PDFDocument.load(currentPdfBytes);
                 const task = pdfjsLib.getDocument({ data: currentPdfBytes.slice(0) });
                 pdfjsDoc = await task.promise;
 
                 emptyState.classList.add('hidden');
                 document.getElementById('no-pages-state').classList.add('hidden');
-                canvasWrapper.classList.remove('hidden');
+                canvasWrapper.classList.add('hidden');
+                pageFlow.classList.remove('hidden');
                 toolbar.classList.remove('opacity-40', 'pointer-events-none');
                 document.getElementById('empty-thumb-placeholder').classList.add('hidden');
 
@@ -2499,79 +2706,279 @@
                 updatePageIndicator();
                 await renderMainPage();
                 await renderThumbnails();
+                updateThumbnailActiveState(true);
                 refreshLayersList();
             } catch (err) {
                 console.error("loadPdfState error:", err);
             }
         }
 
-        async function renderMainPage() {
-            if (!pdfjsDoc || pdfjsDoc.numPages === 0) return;
-            if (currentPageNum < 1) currentPageNum = 1;
-            if (currentPageNum > pdfjsDoc.numPages) currentPageNum = pdfjsDoc.numPages;
+        function getPageContainer(pageNumber = currentPageNum) {
+            return pageFlow.querySelector(`.page-container[data-page-number="${pageNumber}"]`);
+        }
 
+        function getPageCanvas(pageNumber = currentPageNum) {
+            const container = getPageContainer(pageNumber);
+            return container ? container.querySelector('.pdf-page-canvas') : null;
+        }
+
+        function cancelPageRenders() {
+            pageRenderGeneration++;
+            activeOverlayRenderToken++;
+            pageRenderTasks.forEach(task => {
+                try { task.cancel(); } catch (e) {}
+            });
+            pageRenderTasks.clear();
             if (mainRenderTask) {
-                try { mainRenderTask.cancel(); } catch(e){}
+                try { mainRenderTask.cancel(); } catch (e) {}
                 mainRenderTask = null;
-            }
-
-            try {
-                const page = await pdfjsDoc.getPage(currentPageNum);
-                unscaledViewport = page.getViewport({ scale: 1.0 });
-                const scale = currentZoom * 2;
-                const vp = page.getViewport({ scale: scale });
-
-                mainCanvas.width = vp.width; 
-                mainCanvas.height = vp.height;
-                mainCanvas.style.width = `${vp.width / 2}px`; 
-                mainCanvas.style.height = `${vp.height / 2}px`;
-                redactionCanvas.width = vp.width; 
-                redactionCanvas.height = vp.height;
-                redactionCanvas.style.width = `${vp.width / 2}px`; 
-                redactionCanvas.style.height = `${vp.height / 2}px`;
-
-                canvasWrapper.style.width = `${vp.width / 2}px`;
-                canvasWrapper.style.height = `${vp.height / 2}px`;
-
-                mainRenderTask = page.render({ canvasContext: mainCtx, viewport: vp });
-                await mainRenderTask.promise;
-                mainRenderTask = null;
-
-                drawAllRedactions();
-
-                const textLayerDiv = document.getElementById('pdf-text-layer');
-                if (textLayerDiv) {
-                    textLayerDiv.innerHTML = '';
-                    textLayerDiv.style.width = `${vp.width / 2}px`;
-                    textLayerDiv.style.height = `${vp.height / 2}px`;
-                    try {
-                        const textContent = await page.getTextContent();
-                        pdfjsLib.renderTextLayer({
-                            textContentSource: textContent,
-                            container: textLayerDiv,
-                            viewport: page.getViewport({ scale: currentZoom })
-                        });
-                    } catch(err) {
-                        console.warn("TextLayer render warning:", err);
-                    }
-                }
-            } catch (err) {
-                if (err && err.name !== 'RenderingCancelledException') {
-                    console.error("renderMainPage error:", err);
-                }
             }
         }
 
-        function updatePageIndicator() { if (pdfjsDoc) pageIndicator.innerText = `${currentPageNum} / ${pdfjsDoc.numPages}`; }
-        function prevPage() { if (currentPageNum > 1) { currentPageNum--; switchPage(); } }
-        function nextPage() { if (currentPageNum < pdfjsDoc.numPages) { currentPageNum++; switchPage(); } }
-        function switchPage() { renderMainPage(); renderThumbnails(); updatePageIndicator(); refreshLayersList(); }
-        function zoomIn() { if (currentZoom < 4.0) { currentZoom += 0.25; updateZoom(); } }
-        function zoomOut() { if (currentZoom > 0.5) { currentZoom -= 0.25; updateZoom(); } }
-        function updateZoom() { zoomIndicator.innerText = `${Math.round(currentZoom*100)}%`; renderMainPage(); }
+        async function renderMainPage() {
+            if (!pdfjsDoc || pdfjsDoc.numPages === 0) return;
+            currentPageNum = Math.min(Math.max(currentPageNum, 1), pdfjsDoc.numPages);
+
+            const anchorPage = currentPageNum;
+            const oldAnchor = getPageContainer(anchorPage);
+            const oldRatio = oldAnchor && oldAnchor.offsetHeight
+                ? Math.max(0, Math.min(1, (dropZone.scrollTop - oldAnchor.offsetTop) / oldAnchor.offsetHeight))
+                : 0;
+
+            cancelPageRenders();
+            const generation = pageRenderGeneration;
+            const dpr = Math.max(1, window.devicePixelRatio || 1);
+            const pageCache = new Map();
+            pageViewportMap.clear();
+            pageFlow.innerHTML = '';
+            pageFlow.classList.remove('hidden');
+
+            /* Önce bütün bağımsız sayfa DOM'larını kuruyoruz; böylece belge daha
+               çizim tamamlanmadan bile kesintisiz ve doğru uzunlukta kaydırılabilir. */
+            for (let pageNumber = 1; pageNumber <= pdfjsDoc.numPages; pageNumber++) {
+                if (generation !== pageRenderGeneration) return;
+                const page = await pdfjsDoc.getPage(pageNumber);
+                const baseViewport = page.getViewport({ scale: 1 });
+                const cssViewport = page.getViewport({ scale: currentZoom });
+                pageCache.set(pageNumber, page);
+                pageViewportMap.set(pageNumber, baseViewport);
+
+                const container = document.createElement('div');
+                container.className = `page-container${pageNumber === currentPageNum ? ' page-active' : ''}`;
+                container.dataset.pageNumber = pageNumber;
+                container.setAttribute('role', 'region');
+                container.setAttribute('aria-label', `Sayfa ${pageNumber}`);
+                container.style.width = `${cssViewport.width}px`;
+                container.style.height = `${cssViewport.height}px`;
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'pdf-page-canvas';
+                canvas.dataset.pageNumber = pageNumber;
+                canvas.width = Math.max(1, Math.ceil(cssViewport.width * dpr));
+                canvas.height = Math.max(1, Math.ceil(cssViewport.height * dpr));
+                canvas.style.width = `${cssViewport.width}px`;
+                canvas.style.height = `${cssViewport.height}px`;
+                container.appendChild(canvas);
+
+                const loading = document.createElement('div');
+                loading.className = 'page-loading';
+                loading.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Sayfa hazırlanıyor';
+                container.appendChild(loading);
+                pageFlow.appendChild(container);
+            }
+
+            const newAnchor = getPageContainer(anchorPage);
+            if (newAnchor) {
+                dropZone.scrollTop = Math.max(0, newAnchor.offsetTop + (newAnchor.offsetHeight * oldRatio));
+            }
+
+            setupPageVisibilityObserver();
+
+            /* Görünür/aktif sayfaya yakın olanları önce çiz; bütün sayfalar yine
+               ayrı kanvaslarda sırayla tamamlanır. */
+            const renderOrder = Array.from({ length: pdfjsDoc.numPages }, (_, i) => i + 1)
+                .sort((a, b) => Math.abs(a - currentPageNum) - Math.abs(b - currentPageNum));
+
+            for (const pageNumber of renderOrder) {
+                if (generation !== pageRenderGeneration) return;
+                const page = pageCache.get(pageNumber);
+                const canvas = getPageCanvas(pageNumber);
+                const container = getPageContainer(pageNumber);
+                if (!page || !canvas || !container) continue;
+
+                const renderViewport = page.getViewport({ scale: currentZoom * dpr });
+                const renderTask = page.render({
+                    canvasContext: canvas.getContext('2d'),
+                    viewport: renderViewport
+                });
+                pageRenderTasks.set(pageNumber, renderTask);
+                try {
+                    await renderTask.promise;
+                    if (generation !== pageRenderGeneration) return;
+                    const loading = container.querySelector('.page-loading');
+                    if (loading) loading.remove();
+                } catch (err) {
+                    if (!err || err.name !== 'RenderingCancelledException') {
+                        console.error(`Sayfa ${pageNumber} çizilemedi:`, err);
+                    }
+                } finally {
+                    if (pageRenderTasks.get(pageNumber) === renderTask) pageRenderTasks.delete(pageNumber);
+                }
+            }
+
+            if (generation === pageRenderGeneration) {
+                await setActivePage(currentPageNum, { scrollThumbnail: false, forceOverlay: true });
+                if (pdfTextEditMode) await buildPdfTextEditLayers();
+            }
+        }
+
+        function setupPageVisibilityObserver() {
+            if (pageVisibilityObserver) pageVisibilityObserver.disconnect();
+            pageVisibilityScores.clear();
+            const thresholds = Array.from({ length: 21 }, (_, i) => i / 20);
+            pageVisibilityObserver = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    const pageNumber = Number(entry.target.dataset.pageNumber);
+                    const area = entry.isIntersecting
+                        ? entry.intersectionRect.width * entry.intersectionRect.height
+                        : 0;
+                    pageVisibilityScores.set(pageNumber, area);
+                });
+                let mostVisiblePage = currentPageNum;
+                let largestArea = 0;
+                pageVisibilityScores.forEach((area, pageNumber) => {
+                    if (area > largestArea) {
+                        largestArea = area;
+                        mostVisiblePage = pageNumber;
+                    }
+                });
+                if (largestArea > 0 && mostVisiblePage !== currentPageNum) {
+                    setActivePage(mostVisiblePage, { scrollThumbnail: true });
+                }
+            }, { root: dropZone, threshold: thresholds });
+            pageFlow.querySelectorAll('.page-container').forEach(container => pageVisibilityObserver.observe(container));
+        }
+
+        function updateThumbnailActiveState(scrollThumbnail = false) {
+            thumbnailContainer.querySelectorAll('.thumbnail-card').forEach(card => {
+                const active = Number(card.dataset.pageNumber) === currentPageNum;
+                card.classList.toggle('thumbnail-active', active);
+                const label = card.querySelector('span.font-mono');
+                if (label) {
+                    label.classList.toggle('text-rose-500', active);
+                    label.classList.toggle('text-gray-400', !active);
+                }
+                if (active && scrollThumbnail) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        }
+
+        async function setActivePage(pageNumber, options = {}) {
+            if (!pdfjsDoc) return;
+            const nextPage = Math.min(Math.max(Number(pageNumber) || 1, 1), pdfjsDoc.numPages);
+            const changed = nextPage !== currentPageNum;
+            currentPageNum = nextPage;
+            unscaledViewport = pageViewportMap.get(currentPageNum) || unscaledViewport;
+            if (!redactionZones[currentPageNum]) redactionZones[currentPageNum] = [];
+
+            pageFlow.querySelectorAll('.page-container').forEach(container => {
+                container.classList.toggle('page-active', Number(container.dataset.pageNumber) === currentPageNum);
+            });
+            updatePageIndicator();
+            updateThumbnailActiveState(Boolean(options.scrollThumbnail));
+
+            if (changed || options.forceOverlay) {
+                await renderActivePageOverlays();
+                refreshLayersList();
+            }
+        }
+
+        async function renderActivePageOverlays() {
+            const container = getPageContainer(currentPageNum);
+            const canvas = getPageCanvas(currentPageNum);
+            if (!container || !canvas || !pdfjsDoc) return;
+            const token = ++activeOverlayRenderToken;
+            const pageNumber = currentPageNum;
+
+            [redactionCanvas, document.getElementById('pdf-text-layer'), searchHighlightLayer,
+             interactiveTextBox, interactiveImageBox].forEach(layer => {
+                if (layer && layer.parentElement !== container) container.appendChild(layer);
+            });
+
+            redactionCanvas.width = canvas.width;
+            redactionCanvas.height = canvas.height;
+            redactionCanvas.style.width = canvas.style.width;
+            redactionCanvas.style.height = canvas.style.height;
+            searchHighlightLayer.style.width = canvas.style.width;
+            searchHighlightLayer.style.height = canvas.style.height;
+            drawAllRedactions();
+
+            const textLayerDiv = document.getElementById('pdf-text-layer');
+            if (!textLayerDiv) return;
+            textLayerDiv.innerHTML = '';
+            textLayerDiv.style.width = canvas.style.width;
+            textLayerDiv.style.height = canvas.style.height;
+
+            try {
+                const page = await pdfjsDoc.getPage(pageNumber);
+                const textContent = await page.getTextContent();
+                if (token !== activeOverlayRenderToken || pageNumber !== currentPageNum) return;
+                const textTask = pdfjsLib.renderTextLayer({
+                    textContentSource: textContent,
+                    container: textLayerDiv,
+                    viewport: page.getViewport({ scale: currentZoom })
+                });
+                if (textTask && textTask.promise) await textTask.promise;
+                syncRedactionInteractionMode();
+            } catch (err) {
+                console.warn("TextLayer render warning:", err);
+            }
+        }
+
+        async function goToPage(pageNumber, smooth = true) {
+            if (!pdfjsDoc) return;
+            await setActivePage(pageNumber, { scrollThumbnail: true, forceOverlay: true });
+            const container = getPageContainer(currentPageNum);
+            if (container) {
+                container.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start', inline: 'center' });
+            }
+        }
+
+        function updatePageIndicator() {
+            if (pdfjsDoc) pageIndicator.innerText = `${currentPageNum} / ${pdfjsDoc.numPages}`;
+        }
+        function prevPage() { if (currentPageNum > 1) goToPage(currentPageNum - 1, true); }
+        function nextPage() { if (pdfjsDoc && currentPageNum < pdfjsDoc.numPages) goToPage(currentPageNum + 1, true); }
+        function switchPage() { goToPage(currentPageNum, true); }
+        function zoomIn() {
+            if (currentZoom < 5) {
+                currentZoom = Math.min(5, currentZoom + 0.25);
+                updateZoom();
+            }
+        }
+        function zoomOut() {
+            if (currentZoom > 0.25) {
+                currentZoom = Math.max(0.25, currentZoom - 0.25);
+                updateZoom();
+            }
+        }
+        async function updateZoom() {
+            if (pdfTextEditMode && activePdfTextEditor) {
+                const committed = await commitPdfTextBlockEdit(activePdfTextEditor);
+                if (!committed) return;
+            }
+            currentZoom = Math.min(5, Math.max(0.25, currentZoom));
+            zoomIndicator.innerText = `${Math.round(currentZoom * 100)}%`;
+            await renderMainPage();
+        }
 
         async function rotatePage(dir) {
             if (!pdfLibDoc) return;
+            if (pdfTextEditMode) {
+                const finished = await finishPdfTextEditMode({ silent: true });
+                if (!finished) return;
+            }
             const p = pdfLibDoc.getPage(currentPageNum - 1);
             p.setRotation(PDFLib.degrees(p.getRotation().angle + (dir * 90)));
             currentPdfBytes = await pdfLibDoc.save();
@@ -2579,139 +2986,1129 @@
             await loadPdfState();
         }
 
-        function toggleRedactionMode() {
+        function getPdfTextFontMatch(item, styles) {
+            const style = (styles && styles[item.fontName]) || {};
+            const rawName = `${item.fontName || ''} ${style.fontFamily || ''}`;
+            if (/times|serif|minion/i.test(rawName)) {
+                return {
+                    category: 'serif',
+                    cssFamily: "'Playfair Display', 'Times New Roman', Times, serif",
+                    standardFont: PDFLib.StandardFonts.TimesRoman,
+                    rawName
+                };
+            }
+            if (/courier|mono/i.test(rawName)) {
+                return {
+                    category: 'mono',
+                    cssFamily: "'JetBrains Mono', 'Courier New', monospace",
+                    standardFont: PDFLib.StandardFonts.Courier,
+                    rawName
+                };
+            }
+            return {
+                category: 'sans',
+                cssFamily: "Arimo, Inter, Arial, sans-serif",
+                standardFont: PDFLib.StandardFonts.Helvetica,
+                rawName
+            };
+        }
+
+        function setPdfTextEditViewMode(mode = 'single') {
+            pdfTextEditViewMode = mode === 'all' ? 'all' : 'single';
+            document.querySelectorAll('.pdf-edit-layer').forEach(layer => {
+                layer.classList.toggle('show-all-blocks', pdfTextEditViewMode === 'all');
+            });
+            if (btnPdfEditSingle) btnPdfEditSingle.classList.toggle('mode-active', pdfTextEditViewMode === 'single');
+            if (btnPdfEditAll) btnPdfEditAll.classList.toggle('mode-active', pdfTextEditViewMode === 'all');
+        }
+
+        function setPdfTextEditBusy(isBusy) {
+            isCommittingPdfTextEdit = isBusy;
+            [btnPdfEditSingle, btnPdfEditAll, btnPdfEditFinish].forEach(button => {
+                if (!button) return;
+                button.disabled = isBusy;
+                button.classList.toggle('opacity-60', isBusy);
+                button.classList.toggle('cursor-wait', isBusy);
+            });
+        }
+
+        function removePdfTextEditLayers() {
+            pdfTextEditLayerToken++;
+            pageFlow.querySelectorAll('.pdf-edit-layer').forEach(layer => layer.remove());
+            activePdfTextEditor = null;
+            pendingPdfTextEditorActivation = null;
+        }
+
+        function resetPdfTextEditUI() {
+            removePdfTextEditLayers();
+            pdfTextEditMode = false;
+            pdfTextEditDirty = false;
+            pdfTextEditCommitPromise = null;
+            setPdfTextEditBusy(false);
+            if (pdfTextEditToolbar) {
+                pdfTextEditToolbar.classList.add('hidden');
+                pdfTextEditToolbar.classList.remove('flex');
+            }
+            if (btnEditPdfText) btnEditPdfText.classList.remove('ring-2', 'ring-blue-500', 'border-blue-500');
+            syncRedactionInteractionMode();
+        }
+
+        async function togglePdfTextEditMode() {
+            if (pdfTextEditMode) {
+                await finishPdfTextEditMode();
+                return;
+            }
+            if (!pdfjsDoc || !currentPdfBytes) {
+                showToast('Önce bir PDF belgesi açın.', 'bg-amber-600');
+                return;
+            }
+            if (isApplyingRedaction || isCommittingPdfTextEdit) return;
+            if (isRedactionMode) await toggleRedactionMode();
+
+            dismissInteractiveTextBox();
+            dismissInteractiveImageBox();
+            pdfTextEditMode = true;
+            pdfTextEditDirty = false;
+            if (pdfTextEditToolbar) {
+                pdfTextEditToolbar.classList.remove('hidden');
+                pdfTextEditToolbar.classList.add('flex');
+            }
+            if (btnEditPdfText) btnEditPdfText.classList.add('ring-2', 'ring-blue-500', 'border-blue-500');
+            setPdfTextEditViewMode('single');
+            syncRedactionInteractionMode();
+            showToast('Metne tıklayın; mavi çerçeve içinde doğrudan düzenleyin.', 'bg-blue-600', 'fa-solid fa-pen-to-square');
+            await buildPdfTextEditLayers();
+        }
+
+        async function finishPdfTextEditMode(options = {}) {
+            if (!pdfTextEditMode) return true;
+            if (pdfTextEditCommitPromise) {
+                const pendingResult = await pdfTextEditCommitPromise;
+                if (!pendingResult) return false;
+            }
+            if (activePdfTextEditor) {
+                const committed = await commitPdfTextBlockEdit(activePdfTextEditor);
+                if (!committed) return false;
+            }
+
+            const needsReload = pdfTextEditDirty || options.reload === true;
+            removePdfTextEditLayers();
+            pdfTextEditMode = false;
+            if (pdfTextEditToolbar) {
+                pdfTextEditToolbar.classList.add('hidden');
+                pdfTextEditToolbar.classList.remove('flex');
+            }
+            if (btnEditPdfText) btnEditPdfText.classList.remove('ring-2', 'ring-blue-500', 'border-blue-500');
+            syncRedactionInteractionMode();
+
+            if (needsReload && currentPdfBytes) await loadPdfState();
+            pdfTextEditDirty = false;
+            if (!options.silent) {
+                showToast('Metin düzenlemeleri PDF içerisine kaydedildi.', 'bg-emerald-600', 'fa-solid fa-check');
+            }
+            return true;
+        }
+
+        async function buildPdfTextEditLayers() {
+            if (!pdfTextEditMode || !pdfjsDoc) return;
+            const token = ++pdfTextEditLayerToken;
+            pageFlow.querySelectorAll('.pdf-edit-layer').forEach(layer => layer.remove());
+
+            for (let pageNumber = 1; pageNumber <= pdfjsDoc.numPages; pageNumber++) {
+                if (!pdfTextEditMode || token !== pdfTextEditLayerToken) return;
+                const container = getPageContainer(pageNumber);
+                const canvas = getPageCanvas(pageNumber);
+                if (!container || !canvas) continue;
+
+                const page = await pdfjsDoc.getPage(pageNumber);
+                const viewport = page.getViewport({ scale: currentZoom });
+                const textContent = await page.getTextContent({ disableCombineTextItems: false });
+                if (!pdfTextEditMode || token !== pdfTextEditLayerToken) return;
+
+                const editLayer = document.createElement('div');
+                editLayer.className = `pdf-edit-layer${pdfTextEditViewMode === 'all' ? ' show-all-blocks' : ''}`;
+                editLayer.dataset.pageNumber = String(pageNumber);
+                editLayer.style.width = canvas.style.width;
+                editLayer.style.height = canvas.style.height;
+                editLayer.style.setProperty('--scale-factor', String(currentZoom));
+                container.appendChild(editLayer);
+
+                const textTask = pdfjsLib.renderTextLayer({
+                    textContentSource: textContent,
+                    container: editLayer,
+                    viewport
+                });
+                if (textTask && textTask.promise) await textTask.promise;
+                if (!pdfTextEditMode || token !== pdfTextEditLayerToken) return;
+
+                const itemSpans = mapTextItemsToLayerSpans(textContent.items, editLayer);
+                const usedSpans = new Set(itemSpans.values());
+                Array.from(editLayer.querySelectorAll(':scope > span')).forEach(span => {
+                    if (!usedSpans.has(span)) span.remove();
+                });
+
+                itemSpans.forEach((span, itemIndex) => {
+                    const item = textContent.items[itemIndex];
+                    const originalText = String(item.str || '');
+                    if (!originalText.trim()) {
+                        span.remove();
+                        return;
+                    }
+                    const style = textContent.styles[item.fontName] || {};
+                    const fontMatch = getPdfTextFontMatch(item, textContent.styles);
+                    const transform = Array.from(item.transform || [1, 0, 0, 1, 0, 0]);
+                    const fontSize = Math.max(1, Math.hypot(Number(transform[2]) || 0, Number(transform[3]) || 0) || Number(item.height) || 10);
+
+                    span.classList.add('pdf-edit-block');
+                    span.dataset.pageNumber = String(pageNumber);
+                    span.dataset.itemIndex = String(itemIndex);
+                    span.dataset.originalText = originalText;
+                    span.setAttribute('role', 'textbox');
+                    span.setAttribute('aria-label', `Sayfa ${pageNumber} metni: ${originalText.slice(0, 80)}`);
+                    span.setAttribute('spellcheck', 'false');
+                    span.style.fontFamily = fontMatch.cssFamily;
+                    span.style.setProperty('--pdf-edit-color', '#000000');
+                    span._pdfEditMeta = {
+                        pageNumber,
+                        itemIndex,
+                        transform,
+                        width: Math.abs(Number(item.width) || 0),
+                        height: Math.abs(Number(item.height) || fontSize),
+                        fontSize,
+                        ascent: Number.isFinite(style.ascent) ? style.ascent : 0.82,
+                        descent: Number.isFinite(style.descent) ? style.descent : -0.18,
+                        fontMatch,
+                        color: '#000000'
+                    };
+
+                    span.addEventListener('click', event => {
+                        if (!pdfTextEditMode || span.isContentEditable) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        activatePdfTextBlock(span, false);
+                    });
+                    span.addEventListener('dblclick', event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        activatePdfTextBlock(span, true);
+                    });
+                    span.addEventListener('blur', () => {
+                        if (span === activePdfTextEditor && !span._skipPdfEditBlur) commitPdfTextBlockEdit(span);
+                    });
+                    span.addEventListener('keydown', event => {
+                        if (event.key === 'Escape') {
+                            event.preventDefault();
+                            cancelActivePdfTextEdit(span);
+                            return;
+                        }
+                        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            span.blur();
+                        }
+                    });
+                });
+            }
+        }
+
+        function getPdfEditBlockZone(block) {
+            const meta = block && block._pdfEditMeta;
+            const canvas = meta ? getPageCanvas(meta.pageNumber) : null;
+            if (!block || !canvas) return null;
+            const rect = block.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            if (!canvasRect.width || !canvasRect.height) return null;
+            const padding = 1.25;
+            const left = Math.max(0, rect.left - canvasRect.left - padding);
+            const top = Math.max(0, rect.top - canvasRect.top - padding);
+            const right = Math.min(canvasRect.width, rect.right - canvasRect.left + padding);
+            const bottom = Math.min(canvasRect.height, rect.bottom - canvasRect.top + padding);
+            if (right <= left || bottom <= top) return null;
+            return {
+                normX: left / canvasRect.width,
+                normY: top / canvasRect.height,
+                normW: (right - left) / canvasRect.width,
+                normH: (bottom - top) / canvasRect.height,
+                source: 'pdf-text-edit'
+            };
+        }
+
+        async function activatePdfTextBlock(block, selectAll = false) {
+            if (!pdfTextEditMode || !block) return;
+            if (isCommittingPdfTextEdit) {
+                pendingPdfTextEditorActivation = { block, selectAll };
+                return;
+            }
+            if (activePdfTextEditor && activePdfTextEditor !== block) {
+                const committed = await commitPdfTextBlockEdit(activePdfTextEditor);
+                if (!committed) return;
+            }
+            activePdfTextEditor = block;
+            block._pdfEditOriginalZone = getPdfEditBlockZone(block);
+            block._pdfEditOriginalValue = block.dataset.originalText || block.textContent || '';
+            block.contentEditable = 'true';
+            block.classList.add('pdf-edit-active');
+            block.classList.remove('pdf-edit-patched');
+            block.focus({ preventScroll: true });
+
+            const selection = window.getSelection();
+            if (selection) {
+                const range = document.createRange();
+                range.selectNodeContents(block);
+                if (!selectAll) range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+        }
+
+        function cancelActivePdfTextEdit(block = activePdfTextEditor) {
+            if (!block) return;
+            block._skipPdfEditBlur = true;
+            block.textContent = block._pdfEditOriginalValue ?? block.dataset.originalText ?? '';
+            block.contentEditable = 'false';
+            block.classList.remove('pdf-edit-active', 'pdf-edit-busy');
+            if (block.dataset.pdfPatched === 'true') block.classList.add('pdf-edit-patched');
+            block.blur();
+            block._skipPdfEditBlur = false;
+            if (activePdfTextEditor === block) activePdfTextEditor = null;
+        }
+
+        function normalizePdfEditText(value) {
+            return String(value || '')
+                .replace(/\r/g, '')
+                .replace(/\u00a0/g, ' ')
+                .replace(/\n+$/g, '');
+        }
+
+        async function eraseOriginalPdfTextForEdit(sourceBytes, pageNumber, zone) {
+            const mupdf = await getMuPDFEngine();
+            let documentHandle = null;
+            let outputBuffer = null;
+            try {
+                documentHandle = mupdf.Document.openDocument(new Uint8Array(sourceBytes), 'application/pdf');
+                if (!(documentHandle instanceof mupdf.PDFDocument)) throw new Error('Dosya geçerli bir PDF değil.');
+                const page = documentHandle.loadPage(pageNumber - 1);
+                try {
+                    const bounds = page.getBounds('CropBox');
+                    const rect = normalizedZoneToMuPDFRect(zone, bounds);
+                    const annotation = page.createAnnotation('Redact');
+                    annotation.setRect(rect);
+                    page.applyRedactions(
+                        false,
+                        mupdf.PDFPage.REDACT_IMAGE_NONE ?? 0,
+                        mupdf.PDFPage.REDACT_LINE_ART_NONE ?? 0,
+                        mupdf.PDFPage.REDACT_TEXT_REMOVE
+                    );
+                } finally {
+                    page.destroy();
+                }
+                outputBuffer = documentHandle.saveToBuffer(
+                    'garbage=deduplicate,compress=yes,compress-fonts=yes,compress-images=yes,clean=yes,sanitize=yes'
+                );
+                return new Uint8Array(outputBuffer.asUint8Array());
+            } finally {
+                if (outputBuffer) outputBuffer.destroy();
+                if (documentHandle) documentHandle.destroy();
+            }
+        }
+
+        const PDF_EDIT_FONT_URLS = {
+            sans: 'https://cdn.jsdelivr.net/gh/notofonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
+            serif: 'https://cdn.jsdelivr.net/gh/notofonts/noto-fonts@main/hinted/ttf/NotoSerif/NotoSerif-Regular.ttf',
+            mono: 'https://cdn.jsdelivr.net/gh/notofonts/noto-fonts@main/hinted/ttf/NotoSansMono/NotoSansMono-Regular.ttf'
+        };
+
+        async function getPdfEditEmbeddedFont(documentHandle, fontMatch) {
+            let documentFonts = pdfEditEmbeddedFontCache.get(documentHandle);
+            if (!documentFonts) {
+                documentFonts = new Map();
+                pdfEditEmbeddedFontCache.set(documentHandle, documentFonts);
+            }
+            if (documentFonts.has(fontMatch.category)) return documentFonts.get(fontMatch.category);
+
+            const fontkitEngine = window.fontkit || globalThis.fontkit;
+            if (fontkitEngine && typeof documentHandle.registerFontkit === 'function') {
+                try {
+                    documentHandle.registerFontkit(fontkitEngine);
+                    let fontBytes = pdfEditFontByteCache.get(fontMatch.category);
+                    if (!fontBytes) {
+                        const response = await fetch(PDF_EDIT_FONT_URLS[fontMatch.category], { mode: 'cors', cache: 'force-cache' });
+                        if (!response.ok) throw new Error(`Font indirilemedi (${response.status}).`);
+                        fontBytes = new Uint8Array(await response.arrayBuffer());
+                        pdfEditFontByteCache.set(fontMatch.category, fontBytes);
+                    }
+                    const embedded = await documentHandle.embedFont(fontBytes, { subset: true });
+                    documentFonts.set(fontMatch.category, embedded);
+                    return embedded;
+                } catch (fontError) {
+                    console.warn('Unicode font yüklenemedi, standart font deneniyor:', fontError);
+                }
+            }
+
+            const fallback = await documentHandle.embedFont(fontMatch.standardFont);
+            documentFonts.set(fontMatch.category, fallback);
+            return fallback;
+        }
+
+        function drawPdfTextEditPatch(documentHandle, meta, newText, embeddedFont) {
+            const page = documentHandle.getPage(meta.pageNumber - 1);
+            const transform = meta.transform;
+            const x = Number(transform[4]) || 0;
+            const y = Number(transform[5]) || 0;
+            const fontSize = Math.max(1, Number(meta.fontSize) || 10);
+            const angle = Math.atan2(Number(transform[1]) || 0, Number(transform[0]) || 1);
+            const angleDegrees = angle * 180 / Math.PI;
+            const ascent = Number.isFinite(meta.ascent) ? meta.ascent : 0.82;
+            const descent = Number.isFinite(meta.descent) ? meta.descent : -0.18;
+            const perpendicularX = -Math.sin(angle);
+            const perpendicularY = Math.cos(angle);
+            const lowerOffset = (descent * fontSize) - 0.9;
+            const rectX = x + perpendicularX * lowerOffset - 0.9 * Math.cos(angle);
+            const rectY = y + perpendicularY * lowerOffset - 0.9 * Math.sin(angle);
+            const rectWidth = Math.max(Number(meta.width) || 0, fontSize * 0.35) + 1.8;
+            const rectHeight = Math.max((ascent - descent) * fontSize, fontSize) + 1.8;
+
+            page.drawRectangle({
+                x: rectX,
+                y: rectY,
+                width: rectWidth,
+                height: rectHeight,
+                rotate: PDFLib.degrees(angleDegrees),
+                color: PDFLib.rgb(1, 1, 1),
+                opacity: 1
+            });
+
+            if (newText.length > 0) {
+                page.drawText(newText, {
+                    x,
+                    y,
+                    size: fontSize,
+                    font: embeddedFont,
+                    color: PDFLib.rgb(0, 0, 0),
+                    rotate: PDFLib.degrees(angleDegrees),
+                    lineHeight: fontSize * 1.18
+                });
+            }
+        }
+
+        async function refreshPdfJsDocumentWithoutRerender(bytes) {
+            const previous = pdfjsDoc;
+            const task = pdfjsLib.getDocument({ data: new Uint8Array(bytes).slice(0) });
+            pdfjsDoc = await task.promise;
+            if (previous && previous !== pdfjsDoc && typeof previous.destroy === 'function') {
+                Promise.resolve(previous.destroy()).catch(() => {});
+            }
+        }
+
+        function commitPdfTextBlockEdit(block = activePdfTextEditor) {
+            if (!block) return Promise.resolve(true);
+            if (block._pdfEditCommitPromise) return block._pdfEditCommitPromise;
+
+            const operation = (async () => {
+                const meta = block._pdfEditMeta;
+                const originalText = normalizePdfEditText(block._pdfEditOriginalValue ?? block.dataset.originalText ?? '');
+                const newText = normalizePdfEditText(block.innerText);
+                if (newText === originalText) {
+                    block._skipPdfEditBlur = true;
+                    block.contentEditable = 'false';
+                    block.classList.remove('pdf-edit-active', 'pdf-edit-busy');
+                    if (block.dataset.pdfPatched === 'true') block.classList.add('pdf-edit-patched');
+                    block._skipPdfEditBlur = false;
+                    if (activePdfTextEditor === block) activePdfTextEditor = null;
+                    return true;
+                }
+                if (!meta || !currentPdfBytes) return false;
+
+                const editZone = block._pdfEditOriginalZone || getPdfEditBlockZone(block);
+                if (!editZone) {
+                    showToast('Metin koordinatı belirlenemedi; değişiklik uygulanmadı.', 'bg-red-700');
+                    cancelActivePdfTextEdit(block);
+                    return false;
+                }
+
+                setPdfTextEditBusy(true);
+                block.classList.add('pdf-edit-busy');
+                block._skipPdfEditBlur = true;
+                block.contentEditable = 'false';
+                block._skipPdfEditBlur = false;
+                showToast('Eski metin temizlenip yeni metin PDF’e işleniyor...', 'bg-blue-700', 'fa-solid fa-spinner fa-spin');
+
+                try {
+                    const cleanedBytes = await eraseOriginalPdfTextForEdit(currentPdfBytes, meta.pageNumber, editZone);
+                    const workingDocument = await PDFLib.PDFDocument.load(cleanedBytes);
+                    const embeddedFont = await getPdfEditEmbeddedFont(workingDocument, meta.fontMatch);
+                    drawPdfTextEditPatch(workingDocument, meta, newText, embeddedFont);
+                    const savedBytes = await workingDocument.save({ useObjectStreams: true });
+
+                    currentPdfBytes = new Uint8Array(savedBytes);
+                    pdfLibDoc = workingDocument;
+                    await refreshPdfJsDocumentWithoutRerender(currentPdfBytes);
+                    saveStateToHistory(currentPdfBytes);
+                    pdfTextEditDirty = true;
+
+                    block.textContent = newText;
+                    block.dataset.originalText = newText;
+                    block.dataset.pdfPatched = 'true';
+                    block._pdfEditOriginalValue = newText;
+                    block.classList.remove('pdf-edit-active', 'pdf-edit-busy');
+                    block.classList.add('pdf-edit-patched');
+                    if (activePdfTextEditor === block) activePdfTextEditor = null;
+                    showToast('Metin düzenlendi ve PDF geçmişine eklendi.', 'bg-emerald-600', 'fa-solid fa-check');
+                    return true;
+                } catch (error) {
+                    console.error('PDF metin düzenleme başarısız:', error);
+                    block.textContent = originalText;
+                    block.contentEditable = 'true';
+                    block.classList.remove('pdf-edit-busy');
+                    block.classList.add('pdf-edit-active');
+                    activePdfTextEditor = block;
+                    showToast('Metin PDF’e işlenemedi; belge değiştirilmedi.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+                    return false;
+                } finally {
+                    setPdfTextEditBusy(false);
+                }
+            })();
+
+            block._pdfEditCommitPromise = operation;
+            pdfTextEditCommitPromise = operation;
+            operation.then(result => {
+                if (!result || !pendingPdfTextEditorActivation || !pdfTextEditMode) return;
+                const pending = pendingPdfTextEditorActivation;
+                pendingPdfTextEditorActivation = null;
+                if (pending.block && pending.block.isConnected) {
+                    setTimeout(() => activatePdfTextBlock(pending.block, pending.selectAll), 0);
+                }
+            });
+            operation.finally(() => {
+                block._pdfEditCommitPromise = null;
+                if (pdfTextEditCommitPromise === operation) pdfTextEditCommitPromise = null;
+            });
+            return operation;
+        }
+
+        async function toggleRedactionMode() {
+            if (!isRedactionMode && pdfTextEditMode) {
+                const finished = await finishPdfTextEditMode({ silent: true });
+                if (!finished) return;
+            }
             isRedactionMode = !isRedactionMode;
             redactionCanvas.classList.toggle('hidden', !isRedactionMode);
             redactionToolbar.classList.toggle('hidden', !isRedactionMode);
             redactionToolbar.classList.toggle('flex', isRedactionMode);
             btnRedact.classList.toggle('ring-2', isRedactionMode);
+            if (isRedactionMode) setRedactionSelectionMode('text', false);
+            else syncRedactionInteractionMode();
             drawAllRedactions();
+            if (isRedactionMode) {
+                showToast('Metni soldan sağa veya sağdan sola sürükleyerek seçin.', 'bg-red-700', 'fa-solid fa-i-cursor');
+            }
         }
 
+        function setRedactionSelectionMode(mode = 'text', announce = true) {
+            redactionSelectionMode = mode === 'area' ? 'area' : 'text';
+            const textButton = document.getElementById('btn-redact-text-select');
+            const areaButton = document.getElementById('btn-redact-area-select');
+            if (textButton) textButton.classList.toggle('mode-active', redactionSelectionMode === 'text');
+            if (areaButton) areaButton.classList.toggle('mode-active', redactionSelectionMode === 'area');
+            syncRedactionInteractionMode();
+            if (announce && isRedactionMode) {
+                showToast(
+                    redactionSelectionMode === 'text'
+                        ? 'Metni iki yönde sürükleyin; çok satırlı seçim otomatik işaretlenir.'
+                        : 'Fareyle serbest bir dikdörtgen sansür alanı çizin.',
+                    'bg-red-700',
+                    redactionSelectionMode === 'text' ? 'fa-solid fa-i-cursor' : 'fa-regular fa-square'
+                );
+            }
+        }
+
+        function syncRedactionInteractionMode() {
+            const textLayer = document.getElementById('pdf-text-layer');
+            const textSelectionActive = isRedactionMode && redactionSelectionMode === 'text' && !pdfTextEditMode;
+            const areaSelectionActive = isRedactionMode && redactionSelectionMode === 'area' && !pdfTextEditMode;
+
+            redactionCanvas.style.pointerEvents = areaSelectionActive ? 'auto' : 'none';
+            redactionCanvas.style.cursor = areaSelectionActive ? 'crosshair' : 'default';
+            if (textLayer) {
+                textLayer.classList.toggle('redaction-text-select-active', textSelectionActive);
+                textLayer.style.pointerEvents = (pdfTextEditMode || areaSelectionActive) ? 'none' : 'auto';
+            }
+        }
+
+        function mergeSelectionClientRects(rects) {
+            const sorted = rects
+                .filter(rect => rect.width > 0.5 && rect.height > 0.5)
+                .sort((a, b) => (a.top - b.top) || (a.left - b.left));
+            const merged = [];
+            sorted.forEach(rect => {
+                const normalized = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+                const height = normalized.bottom - normalized.top;
+                const centerY = normalized.top + (height / 2);
+                let target = null;
+                for (let index = merged.length - 1; index >= Math.max(0, merged.length - 4); index--) {
+                    const candidate = merged[index];
+                    const candidateHeight = candidate.bottom - candidate.top;
+                    const candidateCenter = candidate.top + (candidateHeight / 2);
+                    const sameLine = Math.abs(centerY - candidateCenter) <= Math.max(height, candidateHeight) * 0.55;
+                    const horizontalGap = Math.max(0, normalized.left - candidate.right, candidate.left - normalized.right);
+                    if (sameLine && horizontalGap <= Math.max(6, Math.max(height, candidateHeight) * 0.85)) {
+                        target = candidate;
+                        break;
+                    }
+                }
+                if (target) {
+                    target.left = Math.min(target.left, normalized.left);
+                    target.top = Math.min(target.top, normalized.top);
+                    target.right = Math.max(target.right, normalized.right);
+                    target.bottom = Math.max(target.bottom, normalized.bottom);
+                } else {
+                    merged.push(normalized);
+                }
+            });
+            return merged;
+        }
+
+        function addTextSelectionRedactionZone(pageNumber, rect, canvasRect) {
+            const padding = 1.5;
+            const left = Math.max(0, rect.left - canvasRect.left - padding);
+            const top = Math.max(0, rect.top - canvasRect.top - padding);
+            const right = Math.min(canvasRect.width, rect.right - canvasRect.left + padding);
+            const bottom = Math.min(canvasRect.height, rect.bottom - canvasRect.top + padding);
+            if (right - left < 1 || bottom - top < 1) return false;
+
+            const zone = {
+                normX: left / canvasRect.width,
+                normY: top / canvasRect.height,
+                normW: (right - left) / canvasRect.width,
+                normH: (bottom - top) / canvasRect.height,
+                source: 'text-selection',
+                kind: 'Elle seçilen metin'
+            };
+            if (!redactionZones[pageNumber]) redactionZones[pageNumber] = [];
+            const duplicate = redactionZones[pageNumber].some(existing =>
+                Math.abs(existing.normX - zone.normX) < 0.002 &&
+                Math.abs(existing.normY - zone.normY) < 0.002 &&
+                Math.abs(existing.normW - zone.normW) < 0.002 &&
+                Math.abs(existing.normH - zone.normH) < 0.002
+            );
+            if (duplicate) return false;
+            redactionZones[pageNumber].push(zone);
+            return true;
+        }
+
+        function captureRedactionTextSelection() {
+            if (!isRedactionMode || redactionSelectionMode !== 'text' || isApplyingRedaction || pdfTextEditMode) return;
+            const selection = window.getSelection();
+            const textLayer = document.getElementById('pdf-text-layer');
+            const canvas = getPageCanvas(currentPageNum);
+            if (!selection || selection.isCollapsed || !selection.rangeCount || !textLayer || !canvas) return;
+            if (!textLayer.contains(selection.anchorNode) || !textLayer.contains(selection.focusNode)) return;
+
+            const canvasRect = canvas.getBoundingClientRect();
+            const rawRects = Array.from(selection.getRangeAt(0).getClientRects())
+                .map(rect => ({
+                    left: Math.max(rect.left, canvasRect.left),
+                    top: Math.max(rect.top, canvasRect.top),
+                    right: Math.min(rect.right, canvasRect.right),
+                    bottom: Math.min(rect.bottom, canvasRect.bottom),
+                    width: Math.max(0, Math.min(rect.right, canvasRect.right) - Math.max(rect.left, canvasRect.left)),
+                    height: Math.max(0, Math.min(rect.bottom, canvasRect.bottom) - Math.max(rect.top, canvasRect.top))
+                }));
+            const mergedRects = mergeSelectionClientRects(rawRects);
+            let addedCount = 0;
+            mergedRects.forEach(rect => {
+                if (addTextSelectionRedactionZone(currentPageNum, rect, canvasRect)) addedCount++;
+            });
+            selection.removeAllRanges();
+
+            if (addedCount > 0) {
+                drawAllRedactions();
+                refreshLayersList();
+                showToast(`${addedCount} satır/bölüm sansür için işaretlendi.`, 'bg-emerald-600', 'fa-solid fa-shield-halved');
+            }
+        }
+
+        document.getElementById('pdf-text-layer').addEventListener('mouseup', () => {
+            requestAnimationFrame(captureRedactionTextSelection);
+        });
+        document.getElementById('pdf-text-layer').addEventListener('touchend', () => {
+            requestAnimationFrame(captureRedactionTextSelection);
+        }, { passive: true });
+
         redactionCanvas.addEventListener('mousedown', e => {
-            if (!isRedactionMode) return; isDrawing = true;
+            if (!isRedactionMode || redactionSelectionMode !== 'area' || isApplyingRedaction) return;
+            isDrawing = true;
+            redactionDrawingPage = currentPageNum;
             const r = redactionCanvas.getBoundingClientRect();
-            startX = (e.clientX - r.left) * 2; startY = (e.clientY - r.top) * 2;
+            startX = (e.clientX - r.left) * (redactionCanvas.width / r.width);
+            startY = (e.clientY - r.top) * (redactionCanvas.height / r.height);
         });
         redactionCanvas.addEventListener('mousemove', e => {
-            if (!isDrawing || !isRedactionMode) return;
+            if (!isDrawing || !isRedactionMode || redactionSelectionMode !== 'area') return;
+            if (redactionDrawingPage !== currentPageNum) { isDrawing = false; return; }
             const r = redactionCanvas.getBoundingClientRect();
-            const cx = (e.clientX - r.left) * 2, cy = (e.clientY - r.top) * 2;
+            const cx = (e.clientX - r.left) * (redactionCanvas.width / r.width);
+            const cy = (e.clientY - r.top) * (redactionCanvas.height / r.height);
             drawAllRedactions();
             redactionCtx.fillStyle = 'rgba(0,0,0,0.7)'; redactionCtx.strokeStyle = 'red'; redactionCtx.lineWidth = 3;
             redactionCtx.fillRect(startX, startY, cx - startX, cy - startY);
             redactionCtx.strokeRect(startX, startY, cx - startX, cy - startY);
         });
         redactionCanvas.addEventListener('mouseup', e => {
-            if (!isDrawing || !isRedactionMode) return; isDrawing = false;
+            if (!isDrawing || !isRedactionMode || redactionSelectionMode !== 'area') return;
+            isDrawing = false;
+            const targetPage = redactionDrawingPage;
+            if (targetPage !== currentPageNum) { drawAllRedactions(); return; }
             const r = redactionCanvas.getBoundingClientRect();
-            const ex = (e.clientX - r.left) * 2, ey = (e.clientY - r.top) * 2;
+            const ex = (e.clientX - r.left) * (redactionCanvas.width / r.width);
+            const ey = (e.clientY - r.top) * (redactionCanvas.height / r.height);
             let x = Math.min(startX, ex), y = Math.min(startY, ey), w = Math.abs(ex - startX), h = Math.abs(ey - startY);
             if (w < 10 || h < 10) { drawAllRedactions(); return; }
-            if (!redactionZones[currentPageNum]) redactionZones[currentPageNum] = [];
-            redactionZones[currentPageNum].push({ normX: x/redactionCanvas.width, normY: y/redactionCanvas.height, normW: w/redactionCanvas.width, normH: h/redactionCanvas.height });
+            if (!redactionZones[targetPage]) redactionZones[targetPage] = [];
+            redactionZones[targetPage].push({
+                normX: x / redactionCanvas.width,
+                normY: y / redactionCanvas.height,
+                normW: w / redactionCanvas.width,
+                normH: h / redactionCanvas.height,
+                source: 'manual'
+            });
             drawAllRedactions(); refreshLayersList();
         });
 
         function drawAllRedactions() {
             redactionCtx.clearRect(0, 0, redactionCanvas.width, redactionCanvas.height);
             if (!redactionZones[currentPageNum]) return;
+            const cssWidth = redactionCanvas.getBoundingClientRect().width || redactionCanvas.width;
+            const outputScale = redactionCanvas.width / Math.max(cssWidth, 1);
             redactionZones[currentPageNum].forEach(z => {
-                redactionCtx.fillStyle = isRedactionMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,1)';
-                redactionCtx.fillRect(z.normX*redactionCanvas.width, z.normY*redactionCanvas.height, z.normW*redactionCanvas.width, z.normH*redactionCanvas.height);
+                const x = z.normX * redactionCanvas.width;
+                const y = z.normY * redactionCanvas.height;
+                const w = z.normW * redactionCanvas.width;
+                const h = z.normH * redactionCanvas.height;
+                redactionCtx.save();
+                redactionCtx.fillStyle = z.source === 'auto-scan'
+                    ? 'rgba(239,68,68,0.20)'
+                    : (isRedactionMode ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,1)');
+                redactionCtx.fillRect(x, y, w, h);
+                if (isRedactionMode) {
+                    redactionCtx.strokeStyle = '#ef4444';
+                    redactionCtx.lineWidth = Math.max(2, 2 * outputScale);
+                    if (z.source === 'auto-scan') redactionCtx.setLineDash([5 * outputScale, 3 * outputScale]);
+                    redactionCtx.strokeRect(x, y, w, h);
+                }
+                redactionCtx.restore();
             });
         }
 
-        async function applyRedaction() {
-            for (let pStr in redactionZones) {
-                const pN = parseInt(pStr), page = pdfLibDoc.getPage(pN - 1), { width, height } = page.getSize();
-                redactionZones[pN].forEach(z => {
-                    page.drawRectangle({ x: z.normX*width, y: height - (z.normY*height) - (z.normH*height), width: z.normW*width, height: z.normH*height, color: PDFLib.rgb(0,0,0) });
+        const MUPDF_MODULE_URL = 'https://cdn.jsdelivr.net/npm/mupdf@1.28.1/dist/mupdf.js';
+
+        function getMuPDFEngine() {
+            if (!mupdfModulePromise) {
+                mupdfModulePromise = import(MUPDF_MODULE_URL).catch(err => {
+                    mupdfModulePromise = null;
+                    throw err;
                 });
             }
-            currentPdfBytes = await pdfLibDoc.save();
-            saveStateToHistory(currentPdfBytes);
-            await loadPdfState();
-            toggleRedactionMode();
-            showToast("Sansür kalıcı uygulandı!", "bg-emerald-600");
+            return mupdfModulePromise;
+        }
+
+        function clamp01(value) {
+            return Math.min(1, Math.max(0, Number(value) || 0));
+        }
+
+        function getValidRedactionEntries() {
+            return Object.entries(redactionZones)
+                .map(([pageNumber, zones]) => ({
+                    pageNumber: Number(pageNumber),
+                    zones: (Array.isArray(zones) ? zones : []).filter(zone =>
+                        Number.isFinite(Number(zone.normX)) && Number.isFinite(Number(zone.normY)) &&
+                        Number(zone.normW) > 0 && Number(zone.normH) > 0
+                    )
+                }))
+                .filter(entry => Number.isInteger(entry.pageNumber) && entry.pageNumber > 0 && entry.zones.length > 0);
+        }
+
+        function normalizedZoneToMuPDFRect(zone, pageBounds) {
+            const pageWidth = pageBounds[2] - pageBounds[0];
+            const pageHeight = pageBounds[3] - pageBounds[1];
+            const x0n = clamp01(zone.normX);
+            const y0n = clamp01(zone.normY);
+            const x1n = clamp01(Number(zone.normX) + Number(zone.normW));
+            const y1n = clamp01(Number(zone.normY) + Number(zone.normH));
+            const x0 = pageBounds[0] + Math.min(x0n, x1n) * pageWidth;
+            const y0 = pageBounds[1] + Math.min(y0n, y1n) * pageHeight;
+            const x1 = pageBounds[0] + Math.max(x0n, x1n) * pageWidth;
+            const y1 = pageBounds[1] + Math.max(y0n, y1n) * pageHeight;
+            return [x0, y0, x1, y1];
+        }
+
+        function quadIntersectsRect(quad, rect) {
+            if (!Array.isArray(quad) || quad.length < 8) return false;
+            const xs = [quad[0], quad[2], quad[4], quad[6]];
+            const ys = [quad[1], quad[3], quad[5], quad[7]];
+            const qx0 = Math.min(...xs), qx1 = Math.max(...xs);
+            const qy0 = Math.min(...ys), qy1 = Math.max(...ys);
+            const epsilon = 0.05;
+            return Math.min(qx1, rect[2]) - Math.max(qx0, rect[0]) > epsilon &&
+                   Math.min(qy1, rect[3]) - Math.max(qy0, rect[1]) > epsilon;
+        }
+
+        function countTextGlyphsInRect(page, rect) {
+            const structuredText = page.toStructuredText('preserve-whitespace');
+            let count = 0;
+            try {
+                structuredText.walk({
+                    onChar: (_char, _origin, font, _size, quad) => {
+                        if (quadIntersectsRect(quad, rect)) count++;
+                        if (font && typeof font.destroy === 'function') font.destroy();
+                    }
+                });
+            } finally {
+                structuredText.destroy();
+            }
+            return count;
+        }
+
+        function verifyAppliedRedactions(mupdf, pdfBytes, entries) {
+            const verificationDoc = mupdf.Document.openDocument(pdfBytes, 'application/pdf');
+            try {
+                for (const entry of entries) {
+                    if (entry.pageNumber > verificationDoc.countPages()) throw new Error('Sayfa sayısı doğrulanamadı.');
+                    const page = verificationDoc.loadPage(entry.pageNumber - 1);
+                    try {
+                        const bounds = page.getBounds('CropBox');
+                        for (const zone of entry.zones) {
+                            const rect = normalizedZoneToMuPDFRect(zone, bounds);
+                            if (countTextGlyphsInRect(page, rect) > 0) {
+                                throw new Error(`Sayfa ${entry.pageNumber} üzerindeki metin tamamen temizlenemedi.`);
+                            }
+                        }
+                    } finally {
+                        page.destroy();
+                    }
+                }
+            } finally {
+                verificationDoc.destroy();
+            }
+        }
+
+        async function applyRedaction() {
+            if (isApplyingRedaction || !currentPdfBytes) return;
+            const entries = getValidRedactionEntries();
+            const zoneCount = entries.reduce((sum, entry) => sum + entry.zones.length, 0);
+            if (!zoneCount) {
+                showToast('Uygulanacak sansür alanı bulunmuyor.', 'bg-amber-600');
+                return;
+            }
+
+            const applyButton = document.getElementById('btn-apply-redaction');
+            const originalButtonHTML = applyButton ? applyButton.innerHTML : '';
+            let mupdfDocument = null;
+            let outputBuffer = null;
+            isApplyingRedaction = true;
+            if (applyButton) {
+                applyButton.disabled = true;
+                applyButton.classList.add('opacity-60', 'cursor-wait');
+                applyButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Güvenli Temizleme...';
+            }
+            showToast('Metin içerik akışından kalıcı olarak temizleniyor...', 'bg-red-700', 'fa-solid fa-spinner fa-spin');
+            await new Promise(resolve => requestAnimationFrame(resolve));
+
+            try {
+                const mupdf = await getMuPDFEngine();
+                const sourceBytes = new Uint8Array(currentPdfBytes);
+                mupdfDocument = mupdf.Document.openDocument(sourceBytes, 'application/pdf');
+                if (!(mupdfDocument instanceof mupdf.PDFDocument)) throw new Error('Dosya geçerli bir PDF değil.');
+
+                for (const entry of entries) {
+                    if (entry.pageNumber > mupdfDocument.countPages()) throw new Error(`Sayfa ${entry.pageNumber} bulunamadı.`);
+                    const page = mupdfDocument.loadPage(entry.pageNumber - 1);
+                    try {
+                        const bounds = page.getBounds('CropBox');
+                        for (const zone of entry.zones) {
+                            const rect = normalizedZoneToMuPDFRect(zone, bounds);
+                            if (rect[2] - rect[0] < 0.25 || rect[3] - rect[1] < 0.25) continue;
+                            const annotation = page.createAnnotation('Redact');
+                            annotation.setRect(rect);
+                        }
+                        page.applyRedactions(
+                            true,
+                            mupdf.PDFPage.REDACT_IMAGE_PIXELS,
+                            mupdf.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED,
+                            mupdf.PDFPage.REDACT_TEXT_REMOVE
+                        );
+                    } finally {
+                        page.destroy();
+                    }
+                }
+
+                /* Artımlı kayıt yapılmaz. Eski içerik akışları ve artık kullanılmayan
+                   nesneler çöp toplama ile çıktıdan tamamen çıkarılır. */
+                outputBuffer = mupdfDocument.saveToBuffer(
+                    'garbage=deduplicate,compress=yes,compress-fonts=yes,compress-images=yes,clean=yes,sanitize=yes'
+                );
+                const sanitizedBytes = new Uint8Array(outputBuffer.asUint8Array());
+                verifyAppliedRedactions(mupdf, sanitizedBytes, entries);
+
+                currentPdfBytes = sanitizedBytes;
+                redactionZones = {};
+                saveStateToHistory(currentPdfBytes);
+                await loadPdfState();
+                if (isRedactionMode) await toggleRedactionMode();
+                showToast(`${zoneCount} alan güvenli biçimde kalıcı sansürlendi.`, 'bg-emerald-600', 'fa-solid fa-shield-halved');
+            } catch (err) {
+                console.error('Gerçek redaction uygulanamadı:', err);
+                showToast('Güvenli sansür uygulanamadı; dosya değiştirilmedi.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+            } finally {
+                if (outputBuffer) outputBuffer.destroy();
+                if (mupdfDocument) mupdfDocument.destroy();
+                isApplyingRedaction = false;
+                if (applyButton) {
+                    applyButton.disabled = false;
+                    applyButton.classList.remove('opacity-60', 'cursor-wait');
+                    applyButton.innerHTML = originalButtonHTML;
+                }
+            }
         }
 
         function clearRedactions() { redactionZones[currentPageNum] = []; drawAllRedactions(); refreshLayersList(); }
 
+        function buildPdfTextIndex(items) {
+            let text = '';
+            const charMap = [];
+            let previousItem = null;
+            items.forEach((item, itemIndex) => {
+                const value = String(item.str || '');
+                if (!value) return;
+                if (previousItem) {
+                    const separator = previousItem.hasEOL ? '\n' : ' ';
+                    text += separator;
+                    charMap.push(null);
+                }
+                for (let charOffset = 0; charOffset < value.length; charOffset++) {
+                    text += value[charOffset];
+                    charMap.push({ itemIndex, charOffset });
+                }
+                previousItem = item;
+            });
+            return { text, charMap };
+        }
+
+        function collectRegexMatches(text, regex, kind, target) {
+            regex.lastIndex = 0;
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                const matchedText = match[1] || match[0];
+                const relativeOffset = match[0].indexOf(matchedText);
+                const start = match.index + Math.max(0, relativeOffset);
+                target.push({ start, end: start + matchedText.length, kind });
+                if (match[0].length === 0) regex.lastIndex++;
+            }
+        }
+
+        function escapeRegex(text) {
+            return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function mapTextItemsToLayerSpans(items, textLayerDiv) {
+            const spans = Array.from(textLayerDiv.querySelectorAll(':scope > span'));
+            const itemSpans = new Map();
+            let spanIndex = 0;
+            items.forEach((item, itemIndex) => {
+                const value = String(item.str || '');
+                if (!value) return;
+                if (!value.trim()) return;
+                let chosen = null;
+                for (let probe = spanIndex; probe < Math.min(spans.length, spanIndex + 12); probe++) {
+                    const spanText = spans[probe].textContent || '';
+                    if (spanText === value || spanText.trim() === value.trim()) {
+                        chosen = spans[probe];
+                        spanIndex = probe + 1;
+                        break;
+                    }
+                }
+                if (!chosen && spans[spanIndex]) chosen = spans[spanIndex++];
+                if (chosen) itemSpans.set(itemIndex, chosen);
+            });
+            return itemSpans;
+        }
+
+        function getFallbackSubstringRect(item, styles, viewport, start, end) {
+            const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+            const style = styles[item.fontName] || {};
+            let angle = Math.atan2(tx[1], tx[0]);
+            if (style.vertical) angle += Math.PI / 2;
+            const fontHeight = Math.hypot(tx[2], tx[3]);
+            let fontAscent = fontHeight;
+            if (Number.isFinite(style.ascent)) fontAscent = style.ascent * fontHeight;
+            else if (Number.isFinite(style.descent)) fontAscent = (1 + style.descent) * fontHeight;
+
+            const textLength = Math.max(String(item.str || '').length, 1);
+            const totalWidth = Math.abs(Number(item.width) || 0) * viewport.scale;
+            const startDistance = totalWidth * (start / textLength);
+            const endDistance = totalWidth * (end / textLength);
+            const dx = Math.cos(angle), dy = Math.sin(angle);
+            const hx = -Math.sin(angle) * fontHeight, hy = Math.cos(angle) * fontHeight;
+            const originX = tx[4] + fontAscent * Math.sin(angle);
+            const originY = tx[5] - fontAscent * Math.cos(angle);
+            const points = [
+                [originX + dx * startDistance, originY + dy * startDistance],
+                [originX + dx * endDistance, originY + dy * endDistance],
+                [originX + dx * startDistance + hx, originY + dy * startDistance + hy],
+                [originX + dx * endDistance + hx, originY + dy * endDistance + hy]
+            ];
+            const xs = points.map(point => point[0]), ys = points.map(point => point[1]);
+            return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) };
+        }
+
+        function addNormalizedScanZone(pageNumber, rect, canvasRect, kind) {
+            const padding = 1.5;
+            const left = Math.max(0, rect.left - canvasRect.left - padding);
+            const top = Math.max(0, rect.top - canvasRect.top - padding);
+            const right = Math.min(canvasRect.width, rect.right - canvasRect.left + padding);
+            const bottom = Math.min(canvasRect.height, rect.bottom - canvasRect.top + padding);
+            if (right - left < 1 || bottom - top < 1) return false;
+            redactionZones[pageNumber].push({
+                normX: left / canvasRect.width,
+                normY: top / canvasRect.height,
+                normW: (right - left) / canvasRect.width,
+                normH: (bottom - top) / canvasRect.height,
+                source: 'auto-scan',
+                kind
+            });
+            return true;
+        }
+
         async function autoScanKVKK() {
-            if (!pdfjsDoc) return;
+            if (!pdfjsDoc || isApplyingRedaction || isScanningRedactions) return;
+            isScanningRedactions = true;
+            try {
+                await runAutoScanKVKK();
+            } catch (err) {
+                console.error('KVKK regex taraması başarısız:', err);
+                showToast('Hassas veri taraması tamamlanamadı.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+            } finally {
+                isScanningRedactions = false;
+            }
+        }
+
+        async function runAutoScanKVKK() {
+            const scanPageNumber = currentPageNum;
             const scanTC = document.getElementById('scan-tc').checked;
             const scanTel = document.getElementById('scan-tel').checked;
             const scanIban = document.getElementById('scan-iban').checked;
             const scanCustom = document.getElementById('scan-custom').value.trim();
+            if (!scanTC && !scanTel && !scanIban && scanCustom.length < 2) {
+                showToast('En az bir tarama türü seçin.', 'bg-amber-600');
+                return;
+            }
 
-            const page = await pdfjsDoc.getPage(currentPageNum);
-            const textContent = await page.getTextContent();
-            
-            const regexTCKN = /\b[1-9]\d{10}\b/g;
-            const regexPhone = /\b0?5\d{2}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}\b/g;
-            const regexIBAN = /\bTR\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b/gi;
+            showToast('Hassas veriler koordinatlarıyla taranıyor...', 'bg-red-700', 'fa-solid fa-spinner fa-spin');
+            const page = await pdfjsDoc.getPage(scanPageNumber);
+            const textContent = await page.getTextContent({ disableCombineTextItems: false });
+            const { text, charMap } = buildPdfTextIndex(textContent.items);
+            const matches = [];
 
-            let cnt = 0;
-            if (!redactionZones[currentPageNum]) redactionZones[currentPageNum] = [];
-            const pw = unscaledViewport ? unscaledViewport.width : 595.28;
-            const ph = unscaledViewport ? unscaledViewport.height : 841.89;
+            if (scanIban) collectRegexMatches(text, /\b(TR(?:[\s.-]?\d){24})\b/gi, 'IBAN', matches);
+            if (scanTel) collectRegexMatches(text, /(?<!\d)((?:(?:\+?90|0)[\s.-]?)?5\d{2}(?:[\s.-]?\d){7})(?!\d)/g, 'Telefon', matches);
+            if (scanTC) collectRegexMatches(text, /(?<!\d)([1-9](?:[\s.-]?\d){10})(?!\d)/g, 'TCKN', matches);
+            if (scanCustom.length >= 2) {
+                const customPattern = escapeRegex(scanCustom).replace(/\s+/g, '\\s+');
+                collectRegexMatches(text, new RegExp(`(${customPattern})`, 'giu'), 'Özel', matches);
+            }
 
-            textContent.items.forEach(item => {
-                const str = item.str;
-                if (!str) return;
-                let matches = [];
-                if (scanTC) {
-                    let m; regexTCKN.lastIndex = 0;
-                    while ((m = regexTCKN.exec(str)) !== null) matches.push({ start: m.index, end: m.index + m[0].length });
+            /* Uzun bir IBAN içindeki 11 hanelik bölümün TCKN, benzer bir bölümün de
+               telefon olarak ikinci kez işaretlenmesini engelle. */
+            const filteredMatches = matches.filter(match => {
+                if (match.kind === 'TCKN') {
+                    return !matches.some(other =>
+                        (other.kind === 'IBAN' || other.kind === 'Telefon') &&
+                        other.start < match.end && other.end > match.start
+                    );
                 }
-                if (scanTel) {
-                    let m; regexPhone.lastIndex = 0;
-                    while ((m = regexPhone.exec(str)) !== null) matches.push({ start: m.index, end: m.index + m[0].length });
+                if (match.kind === 'Telefon') {
+                    return !matches.some(other =>
+                        other.kind === 'IBAN' && other.start < match.end && other.end > match.start
+                    );
                 }
-                if (scanIban) {
-                    let m; regexIBAN.lastIndex = 0;
-                    while ((m = regexIBAN.exec(str)) !== null) matches.push({ start: m.index, end: m.index + m[0].length });
+                return true;
+            });
+            const uniqueMatches = Array.from(new Map(filteredMatches.map(match => [`${match.start}:${match.end}`, match])).values());
+            if (!redactionZones[scanPageNumber]) redactionZones[scanPageNumber] = [];
+            redactionZones[scanPageNumber] = redactionZones[scanPageNumber].filter(zone => zone.source !== 'auto-scan');
+
+            if (!uniqueMatches.length) {
+                drawAllRedactions();
+                refreshLayersList();
+                showToast('Bu sayfada hassas veri bulunamadı.', 'bg-amber-600');
+                return;
+            }
+
+            await setActivePage(scanPageNumber, { forceOverlay: true });
+            const activeCanvas = getPageCanvas(scanPageNumber);
+            const textLayerDiv = document.getElementById('pdf-text-layer');
+            if (!activeCanvas || !textLayerDiv) throw new Error('Aktif sayfa metin katmanı hazırlanamadı.');
+            const canvasRect = activeCanvas.getBoundingClientRect();
+            const viewport = page.getViewport({ scale: currentZoom });
+            const itemSpans = mapTextItemsToLayerSpans(textContent.items, textLayerDiv);
+            let boxCount = 0;
+
+            uniqueMatches.forEach(match => {
+                const itemRanges = new Map();
+                for (let index = match.start; index < match.end; index++) {
+                    const location = charMap[index];
+                    if (!location) continue;
+                    const existing = itemRanges.get(location.itemIndex) || { start: location.charOffset, end: location.charOffset + 1 };
+                    existing.start = Math.min(existing.start, location.charOffset);
+                    existing.end = Math.max(existing.end, location.charOffset + 1);
+                    itemRanges.set(location.itemIndex, existing);
                 }
-                if (scanCustom && scanCustom.length > 1) {
-                    const lowerStr = str.toLocaleLowerCase('tr-TR');
-                    const lowerCustom = scanCustom.toLocaleLowerCase('tr-TR');
-                    let pos = lowerStr.indexOf(lowerCustom);
-                    while (pos !== -1) {
-                        matches.push({ start: pos, end: pos + scanCustom.length });
-                        pos = lowerStr.indexOf(lowerCustom, pos + 1);
+
+                itemRanges.forEach((rangeInfo, itemIndex) => {
+                    const item = textContent.items[itemIndex];
+                    const span = itemSpans.get(itemIndex);
+                    let addedFromDOM = false;
+                    if (span && span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE) {
+                        const textNode = span.firstChild;
+                        const start = Math.min(rangeInfo.start, textNode.length);
+                        const end = Math.min(rangeInfo.end, textNode.length);
+                        if (end > start) {
+                            const range = document.createRange();
+                            range.setStart(textNode, start);
+                            range.setEnd(textNode, end);
+                            Array.from(range.getClientRects()).forEach(rect => {
+                                if (rect.width > 0 && rect.height > 0) {
+                                    if (addNormalizedScanZone(scanPageNumber, rect, canvasRect, match.kind)) boxCount++;
+                                    addedFromDOM = true;
+                                }
+                            });
+                            range.detach();
+                        }
                     }
-                }
 
-                matches.forEach(m => {
-                    const len = Math.max(str.length, 1);
-                    const charW = item.width / len;
-                    const subX = item.transform[4] + (m.start * charW);
-                    const subW = Math.max((m.end - m.start) * charW, 14);
-                    const subH = item.height || 12;
-                    const subY = ph - item.transform[5] - subH;
-
-                    redactionZones[currentPageNum].push({
-                        normX: (subX - 2) / pw,
-                        normY: (subY - 1) / ph,
-                        normW: (subW + 4) / pw,
-                        normH: (subH + 2) / ph
-                    });
-                    cnt++;
+                    if (!addedFromDOM) {
+                        const fallback = getFallbackSubstringRect(item, textContent.styles, viewport, rangeInfo.start, rangeInfo.end);
+                        const absoluteRect = {
+                            left: canvasRect.left + fallback.left,
+                            top: canvasRect.top + fallback.top,
+                            right: canvasRect.left + fallback.right,
+                            bottom: canvasRect.top + fallback.bottom
+                        };
+                        if (addNormalizedScanZone(scanPageNumber, absoluteRect, canvasRect, match.kind)) boxCount++;
+                    }
                 });
             });
 
             drawAllRedactions();
             refreshLayersList();
-            if (cnt > 0) showToast(`${cnt} hassas veri tespit edildi!`, "bg-emerald-600");
-            else showToast("Bu sayfada veri bulunamadı.", "bg-amber-600");
+            if (boxCount > 0) showToast(`${uniqueMatches.length} hassas veri tam koordinatıyla işaretlendi.`, 'bg-emerald-600');
+            else showToast('Eşleşme bulundu ancak koordinat üretilemedi.', 'bg-amber-600');
         }
 
         function toggleFullScreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
         function resetZoom() { currentZoom = 1.0; updateZoom(); }
         function fitToWidth() {
             if (!unscaledViewport) return;
-            currentZoom = (document.getElementById('drop-zone').clientWidth - 80) / unscaledViewport.width;
+            currentZoom = Math.min(5, Math.max(0.25, (dropZone.clientWidth - 80) / unscaledViewport.width));
             updateZoom();
         }
         function toggleDistractionFree() { toggleLeftSidebar(false); toggleRightSidebar(false); }
@@ -2776,6 +4173,32 @@
             setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
+        document.addEventListener('keydown', async event => {
+            const target = event.target;
+            const isEditableTarget = Boolean(target && (
+                target.isContentEditable ||
+                target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.tagName === 'SELECT'
+            ));
+            const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
+            if (shortcut && !isEditableTarget && event.key.toLowerCase() === 'z') {
+                event.preventDefault();
+                if (event.shiftKey) await redoAction();
+                else await undoAction();
+                return;
+            }
+            if (shortcut && !isEditableTarget && event.key.toLowerCase() === 'y') {
+                event.preventDefault();
+                await redoAction();
+                return;
+            }
+            if (event.key === 'Escape' && pdfTextEditMode && !isEditableTarget) {
+                event.preventDefault();
+                await finishPdfTextEditMode();
+            }
+        });
+
         window.addEventListener('load', async () => {
             try {
                 await newDocument();
@@ -2784,5 +4207,47 @@
             }
         });
     </script>
+<!-- OTOMATİK GÜNCELLEME MODALI -->
+<div id="modal-updater" class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="bg-[#202024] border border-[#38383f] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden p-6 text-gray-200">
+        <!-- Başlık & İkon -->
+        <div class="flex items-center space-x-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-red-800 flex items-center justify-center text-white text-lg shadow-inner shrink-0">
+                <i class="fa-solid fa-cloud-arrow-down"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-white">Yeni Güncelleme Mevcut!</h3>
+                <p class="text-[11px] text-gray-400" id="updater-version-tag">KAYRA Suite yeni sürüme hazır</p>
+            </div>
+        </div>
+
+        <!-- Değişiklik Notları -->
+        <div class="bg-[#161618] border border-[#2d2d32] rounded-xl p-3 mb-4 max-h-36 overflow-y-auto custom-scrollbar text-xs text-gray-300 leading-relaxed" id="updater-notes">
+            Sistem iyileştirmeleri ve performans güncellemeleri içerir.
+        </div>
+
+        <!-- İlerleme Çubuğu (Yükleme Esnasında Görünür) -->
+        <div id="updater-progress-container" class="hidden mb-4">
+            <div class="flex justify-between text-[11px] text-gray-400 mb-1">
+                <span id="updater-status-text">İndiriliyor...</span>
+                <span id="updater-percent-text">0%</span>
+            </div>
+            <div class="w-full bg-[#161618] rounded-full h-2 overflow-hidden border border-[#38383f]">
+                <div id="updater-progress-bar" class="bg-gradient-to-r from-rose-600 to-red-600 h-full w-0 transition-all duration-200"></div>
+            </div>
+        </div>
+
+        <!-- Eylem Butonları -->
+        <div class="flex justify-end space-x-2 pt-2 border-t border-[#38383f]" id="updater-buttons">
+            <button onclick="document.getElementById('modal-updater').classList.add('hidden')" class="px-4 py-2 hover:bg-[#323238] text-gray-400 hover:text-white rounded-lg text-xs font-medium transition cursor-pointer">
+                Daha Sonra
+            </button>
+            <button onclick="startAutoUpdate()" id="btn-start-update" class="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-lg text-xs font-bold shadow-lg transition flex items-center space-x-1.5 cursor-pointer">
+                <i class="fa-solid fa-bolt mr-1"></i>
+                <span>Şimdi Güncelle ve Yeniden Başlat</span>
+            </button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
