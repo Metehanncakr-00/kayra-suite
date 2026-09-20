@@ -4,52 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KAYRA Suite - Yaratıcı Masaüstü Ekosistemi</title>
-    
-    <!-- ⚡ SIFIR GECİKMELİ YÖNLENDİRME (DOM Çizilmeden ve CSS Yüklenmeden Önce Çalışır) -->
-    
-<!-- ⚡ SIFIR GECİKMELİ YÖNLENDİRME -->
-<script>
-    (function() {
-        try {
-            const urlParams = new URLSearchParams(window.location.search);
-            const requestedApp = urlParams.get('app');
-
-            if (requestedApp === 'tuval') {
-                window.location.replace('tuval.html');
-                return;
-            }
-
-            if (requestedApp === 'belge') {
-                window.location.replace('belge.html');
-                return;
-            }
-
-const urlParams = new URLSearchParams(window.location.search);
-const fromModule = urlParams.get('from');
-
-if (fromModule === 'module') {
-    // Modülden çıkıp index.html'e geldiysek
-    // kayıtlı tercihi dikkate alma.
-    return;
-}
-
-const savedApp = localStorage.getItem('kayra_default_app');
-
-if (savedApp === 'tuval') {
-    window.location.replace('tuval.html');
-    return;
-}
-
-if (savedApp === 'belge') {
-    window.location.replace('belge.html');
-    return;
-}
-
-        } catch (e) {
-            console.error("Yönlendirme hatası:", e);
-        }
-    })();
-</script>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -90,7 +44,6 @@ if (savedApp === 'belge') {
             overflow-x: hidden;
         }
 
-        /* Arka plan parlama efektleri (Ambient Mesh Glow) */
         .glow-belge {
             position: absolute;
             width: 450px;
@@ -117,7 +70,7 @@ if (savedApp === 'belge') {
         .hub-card {
             transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .hub-card:hover {
+        .hub-card-active:hover {
             transform: translateY(-6px);
         }
 
@@ -133,18 +86,17 @@ if (savedApp === 'belge') {
 <body class="bg-kayra-bg text-gray-100 font-sans min-h-screen flex flex-col justify-between relative selection:bg-rose-500/30">
 
     <!-- Ortam Işıkları -->
-    <div class="glow-belge"></div>
-    <div class="glow-tuval"></div>
+    <div class="glow-belge" id="glow-belge"></div>
+    <div class="glow-tuval" id="glow-tuval"></div>
 
     <!-- ÜST BAŞLIK / HUB HEADER -->
     <header class="w-full pt-10 pb-6 px-6 text-center z-10 modal-enter">
         <div class="inline-flex items-center space-x-2.5 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-gray-400 mb-4 backdrop-blur">
             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span class="font-mono font-medium" id="app-current-version-label">Masaüstü Sürüm v1.0.0</span>
+            <span class="font-mono font-medium" id="app-current-version-label">Masaüstü Sürüm v1.0.2</span>
             <span class="text-gray-600">•</span>
             <span class="text-gray-300 font-bold">KAYRA Suite</span>
-            <!-- Manuel Güncelleme Kontrolü İkonu -->
-            <button onclick="checkForAppUpdates(true)" class="text-gray-400 hover:text-purple-400 transition ml-1" title="Güncellemeleri Denetle">
+            <button onclick="checkForAppUpdates(true)" class="text-gray-400 hover:text-purple-400 transition ml-1 cursor-pointer" title="Güncellemeleri Denetle">
                 <i class="fa-solid fa-rotate text-[10px]" id="manual-check-icon"></i>
             </button>
         </div>
@@ -161,95 +113,95 @@ if (savedApp === 'belge') {
     <main class="flex-1 flex items-center justify-center px-6 py-4 z-10">
         <div class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6 modal-enter">
 
-            <!-- 1. KART: KAYRA BELGE (Acrobat Pro Dengi) -->
-            <div onclick="launchApp('belge')" class="hub-card bg-kayra-card border border-kayra-border hover:border-rose-500/80 rounded-3xl p-8 cursor-pointer relative overflow-hidden group shadow-2xl flex flex-col justify-between">
-                <div class="absolute inset-0 bg-gradient-to-br from-rose-600/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+            <!-- 1. KART: KAYRA BELGE -->
+            <div id="card-belge" onclick="handleCardClick('belge')" class="hub-card hub-card-active bg-kayra-card border border-kayra-border hover:border-rose-500/80 rounded-3xl p-8 cursor-pointer relative overflow-hidden group shadow-2xl flex flex-col justify-between">
+                <div id="ambient-belge" class="absolute inset-0 bg-gradient-to-br from-rose-600/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
 
                 <div>
                     <div class="flex items-center justify-between mb-6">
-                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-600 to-red-700 flex items-center justify-center text-white text-2xl shadow-lg shadow-rose-600/30 group-hover:scale-105 transition-transform">
+                        <div id="icon-box-belge" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-600 to-red-700 flex items-center justify-center text-white text-2xl shadow-lg shadow-rose-600/30 group-hover:scale-105 transition-transform">
                             <i class="fa-solid fa-file-pdf"></i>
                         </div>
                     </div>
 
-                    <h2 class="text-2xl font-black text-white group-hover:text-rose-400 transition-colors flex items-center gap-2">
+                    <h2 class="text-2xl font-black text-white group-hover:text-rose-400 transition-colors flex items-center gap-2" id="title-belge">
                         <span>KAYRA Belge</span>
-                        <i class="fa-solid fa-arrow-up-right-from-square text-xs text-gray-500 group-hover:text-rose-400 transition-colors"></i>
+                        <i class="fa-solid fa-arrow-up-right-from-square text-xs text-gray-500 group-hover:text-rose-400 transition-colors" id="link-icon-belge"></i>
                     </h2>
                     <p class="text-xs text-gray-400 mt-2 leading-relaxed">
                         Kapsamlı PDF düzenleme, 5070 sayılı e-imza, akıllı KVKK karartma ve 8 farklı formatta dışa aktarma stüdyosu.
                     </p>
 
-                    <div class="mt-6 space-y-2.5 pt-4 border-t border-white/5 text-xs text-gray-300">
+                    <div class="mt-6 space-y-2.5 pt-4 border-t border-white/5 text-xs text-gray-300" id="features-belge">
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-rose-500 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-rose-500 text-[11px] check-belge"></i>
                             <span>5070 E-İmza & Resmi Kaşe Damgalama</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-rose-500 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-rose-500 text-[11px] check-belge"></i>
                             <span>KVKK Otomatik Karartma (TCKN, IBAN, Tel)</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-rose-500 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-rose-500 text-[11px] check-belge"></i>
                             <span>8 Format Desteği (Word, ODT, HTML, TXT, EPUB...)</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-rose-500 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-rose-500 text-[11px] check-belge"></i>
                             <span>Sayfa Çoğaltma, Döndürme, Silme & Sıralama</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="mt-8 pt-4 flex items-center justify-between text-xs font-bold text-rose-400 group-hover:text-rose-300">
-                    <span>Belge Modülünü Başlat</span>
-                    <div class="w-8 h-8 rounded-full bg-rose-600/20 group-hover:bg-rose-600 text-rose-300 group-hover:text-white flex items-center justify-center transition-all">
+                <div class="mt-8 pt-4 flex items-center justify-between text-xs font-bold" id="footer-belge">
+                    <span id="footer-text-belge" class="text-rose-400 group-hover:text-rose-300">Belge Modülünü Başlat</span>
+                    <div id="footer-btn-belge" class="w-8 h-8 rounded-full bg-rose-600/20 group-hover:bg-rose-600 text-rose-300 group-hover:text-white flex items-center justify-center transition-all">
                         <i class="fa-solid fa-arrow-right text-xs"></i>
                     </div>
                 </div>
             </div>
 
-            <!-- 2. KART: KAYRA TUVAL (Adobe Express Dengi) -->
-            <div onclick="launchApp('tuval')" class="hub-card bg-kayra-card border border-kayra-border hover:border-purple-500/80 rounded-3xl p-8 cursor-pointer relative overflow-hidden group shadow-2xl flex flex-col justify-between">
-                <div class="absolute inset-0 bg-gradient-to-br from-purple-600/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+            <!-- 2. KART: KAYRA TUVAL -->
+            <div id="card-tuval" onclick="handleCardClick('tuval')" class="hub-card hub-card-active bg-kayra-card border border-kayra-border hover:border-purple-500/80 rounded-3xl p-8 cursor-pointer relative overflow-hidden group shadow-2xl flex flex-col justify-between">
+                <div id="ambient-tuval" class="absolute inset-0 bg-gradient-to-br from-purple-600/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
 
                 <div>
                     <div class="flex items-center justify-between mb-6">
-                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center text-white text-2xl shadow-lg shadow-purple-600/30 group-hover:scale-105 transition-transform">
+                        <div id="icon-box-tuval" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center text-white text-2xl shadow-lg shadow-purple-600/30 group-hover:scale-105 transition-transform">
                             <i class="fa-solid fa-palette"></i>
                         </div>
                     </div>
 
-                    <h2 class="text-2xl font-black text-white group-hover:text-purple-400 transition-colors flex items-center gap-2">
+                    <h2 class="text-2xl font-black text-white group-hover:text-purple-400 transition-colors flex items-center gap-2" id="title-tuval">
                         <span>KAYRA Tuval</span>
-                        <i class="fa-solid fa-arrow-up-right-from-square text-xs text-gray-500 group-hover:text-purple-400 transition-colors"></i>
+                        <i class="fa-solid fa-arrow-up-right-from-square text-xs text-gray-500 group-hover:text-purple-400 transition-colors" id="link-icon-tuval"></i>
                     </h2>
                     <p class="text-xs text-gray-400 mt-2 leading-relaxed">
                         Serbest grafik tasarım, hazır afiş ve sertifika şablonları, katman yönetimi ve çoklu dışa aktarma stüdyosu.
                     </p>
 
-                    <div class="mt-6 space-y-2.5 pt-4 border-t border-white/5 text-xs text-gray-300">
+                    <div class="mt-6 space-y-2.5 pt-4 border-t border-white/5 text-xs text-gray-300" id="features-tuval">
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-purple-400 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-purple-400 text-[11px] check-tuval"></i>
                             <span>Hazır Afiş, Sertifika & İlan Şablonları</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-purple-400 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-purple-400 text-[11px] check-tuval"></i>
                             <span>Serbest Çizim Kalemi & Canlı Renk Seçici</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-purple-400 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-purple-400 text-[11px] check-tuval"></i>
                             <span>Gruplama, Çözme, Aynalama & Nudge Kontrolü</span>
                         </div>
                         <div class="flex items-center space-x-2.5">
-                            <i class="fa-solid fa-check text-purple-400 text-[11px]"></i>
+                            <i class="fa-solid fa-check text-purple-400 text-[11px] check-tuval"></i>
                             <span>Vektörel & Raster Dışa Aktarma (PNG, JPG, SVG, PDF)</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="mt-8 pt-4 flex items-center justify-between text-xs font-bold text-purple-400 group-hover:text-purple-300">
-                    <span>Tuval Modülünü Başlat</span>
-                    <div class="w-8 h-8 rounded-full bg-purple-600/20 group-hover:bg-purple-600 text-purple-300 group-hover:text-white flex items-center justify-center transition-all">
+                <div class="mt-8 pt-4 flex items-center justify-between text-xs font-bold" id="footer-tuval">
+                    <span id="footer-text-tuval" class="text-purple-400 group-hover:text-purple-300">Tuval Modülünü Başlat</span>
+                    <div id="footer-btn-tuval" class="w-8 h-8 rounded-full bg-purple-600/20 group-hover:bg-purple-600 text-purple-300 group-hover:text-white flex items-center justify-center transition-all">
                         <i class="fa-solid fa-arrow-right text-xs"></i>
                     </div>
                 </div>
@@ -275,67 +227,116 @@ if (savedApp === 'belge') {
         </div>
     </footer>
 
-    <!-- 🚀 OTOMATİK GÜNCELLEME MODALI (KAYRA AUTO-UPDATER) -->
-    <div id="modal-updater" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden items-center justify-center p-4">
-        <div class="bg-[#18181b] border border-[#33333a] rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 modal-enter">
-            
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center text-lg shrink-0">
-                    <i class="fa-solid fa-cloud-arrow-down"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-white text-sm">Yeni Güncelleme Mevcut!</h3>
-                    <p class="text-[11px] text-gray-400 font-mono">Mevcut Sürüm ➔ <span id="update-new-version" class="text-emerald-400 font-bold">v1.0.1</span></p>
-                </div>
-            </div>
-
-            <!-- Sürüm Notları (Changelog) -->
-            <div class="bg-[#111113] border border-[#27272a] rounded-xl p-3.5 text-xs text-gray-300 space-y-1.5">
-                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Yenilikler & Notlar:</span>
-                <div id="update-changelog" class="text-[11px] text-gray-300 leading-relaxed max-h-32 overflow-y-auto">
-                    • Performans iyileştirmeleri ve yeni modül özellikleri eklendi.
-                </div>
-            </div>
-
-            <!-- İlerleme Çubuğu -->
-            <div id="update-progress-area" class="hidden space-y-1.5">
-                <div class="flex justify-between text-[10px] font-mono text-gray-400">
-                    <span id="update-status-text">İndiriliyor...</span>
-                    <span id="update-progress-val">0%</span>
-                </div>
-                <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div id="update-progress-bar" class="h-full bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 w-0 transition-all duration-150"></div>
-                </div>
-            </div>
-
-            <!-- Butonlar -->
-            <div class="flex items-center justify-end space-x-2 pt-2 border-t border-[#27272a]">
-                <button type="button" onclick="dismissUpdate()" id="btn-dismiss-update" class="px-4 py-2 text-xs text-gray-400 hover:text-white rounded-xl hover:bg-[#27272a] transition cursor-pointer">
-                    Daha Sonra
-                </button>
-                <button type="button" id="btn-start-update" onclick="startDownloadAndInstall()" class="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-xl shadow-lg transition flex items-center space-x-1.5 cursor-pointer">
-                    <i class="fa-solid fa-download text-xs"></i>
-                    <span>Şimdi Güncelle ve Yeniden Başlat</span>
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- TOAST BİLDİRİMİ -->
-    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 border border-gray-700 text-white px-4 py-2.5 rounded-xl shadow-2xl transform translate-y-20 opacity-0 transition-all z-50 flex items-center font-medium text-xs pointer-events-none">
-        <i id="toast-icon" class="fa-solid fa-circle-info mr-2 text-rose-400 text-sm"></i>
+    <div id="toast" class="fixed bottom-5 right-5 bg-[#1f1f23] border border-gray-700 text-white px-4 py-3 rounded-2xl shadow-2xl transform translate-y-20 opacity-0 transition-all z-50 flex items-center font-medium text-xs pointer-events-none">
+        <i id="toast-icon" class="fa-solid fa-circle-info mr-2.5 text-rose-400 text-base"></i>
         <span id="toast-message">Bildirim</span>
     </div>
 
-    <!-- JAVASCRIPT ETKİLEŞİM & GÜNCELLEME MOTORU -->
+    <!-- JAVASCRIPT ETKİLEŞİM, SIFIR GECİKMELİ BAŞLATICI & FİZİKSEL EXE KONTROLÜ -->
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            updatePreferenceUI();
-            // Sayfa açıldığında sessizce güncelleme denetle
-            setTimeout(() => { checkForAppUpdates(false); }, 1500);
+        let installedState = {
+            belge: true,
+            tuval: true
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await bootstrapSuite();
         });
 
-        function launchApp(targetModule) {
+        async function bootstrapSuite() {
+            let startupTarget = 'hub';
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlApp = urlParams.get('app');
+            const fromModule = urlParams.get('from');
+
+            // 1. Tauri invoke ile dosya sistemindeki gerçek .exe varlığını ve başlangıç hedefini al
+            if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+                try {
+                    installedState = await window.__TAURI__.core.invoke('get_installed_modules');
+                } catch (e) {
+                    console.warn("get_installed_modules invoke hatası:", e);
+                }
+
+                try {
+                    const params = await window.__TAURI__.core.invoke('get_startup_params');
+                    if (params && params.target) {
+                        startupTarget = params.target;
+                    }
+                } catch (e) {
+                    console.warn("get_startup_params invoke hatası:", e);
+                }
+            }
+
+            // 2. Doğrudan bir modüle (KAYRA Belge.exe veya app=belge vb.) tıklandıysa yönlendir
+            if (fromModule !== 'module') {
+                if ((urlApp === 'belge' || startupTarget === 'belge') && installedState.belge) {
+                    window.location.replace('belge.html');
+                    return;
+                }
+                if ((urlApp === 'tuval' || startupTarget === 'tuval') && installedState.tuval) {
+                    window.location.replace('tuval.html');
+                    return;
+                }
+
+                // Varsayılan kayıtlı tercih kontrolü
+                const savedApp = localStorage.getItem('kayra_default_app');
+                if (savedApp === 'belge' && installedState.belge) {
+                    window.location.replace('belge.html');
+                    return;
+                }
+                if (savedApp === 'tuval' && installedState.tuval) {
+                    window.location.replace('tuval.html');
+                    return;
+                }
+            }
+
+            // 3. Creative Hub'da kalındı: Arayüzü fiziksel duruma göre çiz
+            renderModuleUI();
+            updatePreferenceUI();
+        }
+
+        function renderModuleUI() {
+            // KAYRA Belge kurulu değilse soluklaştır ve kilitle
+            if (!installedState.belge) {
+                const card = document.getElementById('card-belge');
+                card.className = "hub-card bg-kayra-card/70 border border-kayra-border/60 rounded-3xl p-8 cursor-not-allowed relative overflow-hidden shadow-xl flex flex-col justify-between opacity-55 select-none";
+                document.getElementById('icon-box-belge').className = "w-14 h-14 rounded-2xl bg-[#202024] border border-white/5 flex items-center justify-center text-gray-500 text-2xl shadow-none";
+                document.getElementById('title-belge').className = "text-2xl font-black text-gray-300 flex items-center gap-2";
+                document.getElementById('link-icon-belge').classList.add('hidden');
+                document.querySelectorAll('.check-belge').forEach(i => i.className = "fa-solid fa-check text-gray-600 text-[11px]");
+                document.getElementById('glow-belge').style.display = 'none';
+
+                document.getElementById('footer-text-belge').innerText = "KAYRA Belge Yüklü Değildir";
+                document.getElementById('footer-text-belge').className = "text-rose-500/80 font-bold text-xs tracking-wide";
+                document.getElementById('footer-btn-belge').className = "w-8 h-8 rounded-full bg-white/5 text-gray-600 flex items-center justify-center";
+            }
+
+            // KAYRA Tuval kurulu değilse soluklaştır ve kilitle (Görselinizdeki birebir mor tema)
+            if (!installedState.tuval) {
+                const card = document.getElementById('card-tuval');
+                card.className = "hub-card bg-kayra-card/70 border border-kayra-border/60 rounded-3xl p-8 cursor-not-allowed relative overflow-hidden shadow-xl flex flex-col justify-between opacity-55 select-none";
+                document.getElementById('icon-box-tuval').className = "w-14 h-14 rounded-2xl bg-[#202024] border border-white/5 flex items-center justify-center text-gray-500 text-2xl shadow-none";
+                document.getElementById('title-tuval').className = "text-2xl font-black text-gray-300 flex items-center gap-2";
+                document.getElementById('link-icon-tuval').classList.add('hidden');
+                document.querySelectorAll('.check-tuval').forEach(i => i.className = "fa-solid fa-check text-gray-600 text-[11px]");
+                document.getElementById('glow-tuval').style.display = 'none';
+
+                document.getElementById('footer-text-tuval').innerText = "KAYRA Tuval Yüklü Değildir";
+                document.getElementById('footer-text-tuval').className = "text-[#8b5cf6]/80 font-bold text-xs tracking-wide";
+                document.getElementById('footer-btn-tuval').className = "w-8 h-8 rounded-full bg-white/5 text-gray-600 flex items-center justify-center";
+            }
+        }
+
+        function handleCardClick(targetModule) {
+            // Yüklü olmayan modüle tıklanırsa engelle ve toast bildirimi ver
+            if (!installedState[targetModule]) {
+                const modName = targetModule === 'tuval' ? 'KAYRA Tuval' : 'KAYRA Belge';
+                showToast(`${modName} modülü bu bilgisayarda yüklü değildir. Eklemek için kurulum sihirbazını tekrar çalıştırabilirsiniz.`, "fa-solid fa-circle-exclamation text-amber-400");
+                return;
+            }
+
             const rememberCheckbox = document.getElementById('remember-choice-checkbox');
             if (rememberCheckbox && rememberCheckbox.checked) {
                 try {
@@ -344,6 +345,7 @@ if (savedApp === 'belge') {
                     console.warn("localStorage yazılamadı:", e);
                 }
             }
+
             window.location.href = (targetModule === 'tuval' ? 'tuval.html' : 'belge.html');
         }
 
@@ -376,106 +378,33 @@ if (savedApp === 'belge') {
             }
         }
 
-        // =========================================================================
-        // 🚀 TAURI V2 OTOMATİK GÜNCELLEME ÇEKİRDEĞİ
-        // =========================================================================
-        window.activeUpdateObject = null;
+        function showToast(msg, iconClass = "fa-solid fa-circle-info text-rose-400") {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            document.getElementById('toast-icon').className = `${iconClass} mr-2.5 text-base`;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => { toast.classList.add('translate-y-20', 'opacity-0'); }, 3500);
+        }
 
         async function checkForAppUpdates(isManual = false) {
             const spinIcon = document.getElementById('manual-check-icon');
             if (isManual && spinIcon) spinIcon.classList.add('fa-spin');
 
             try {
-                // Tauri v2 updater API kontrolü
                 if (window.__TAURI__ && window.__TAURI__.updater) {
                     const { check } = window.__TAURI__.updater;
                     const update = await check();
-                    
                     if (update && update.available) {
-                        window.activeUpdateObject = update;
-                        document.getElementById('update-new-version').innerText = `v${update.version}`;
-                        if (update.body) {
-                            document.getElementById('update-changelog').innerText = update.body;
-                        }
-                        const modal = document.getElementById('modal-updater');
-                        modal.classList.remove('hidden');
-                        modal.classList.add('flex');
+                        showToast(`Yeni v${update.version} sürümü hazır!`, "fa-solid fa-cloud-arrow-down text-emerald-400");
                     } else if (isManual) {
                         showToast("KAYRA Suite zaten güncel!", "fa-solid fa-circle-check text-emerald-400");
                     }
                 }
             } catch (err) {
-                if (isManual) {
-                    showToast("Güncelleme sunucusuna erişilemedi.", "fa-solid fa-triangle-exclamation text-amber-400");
-                }
-                console.log("Updater atlandı veya yapılandırılmadı:", err);
+                if (isManual) showToast("Güncelleme sunucusuna erişilemedi.", "fa-solid fa-triangle-exclamation text-amber-400");
             } finally {
                 if (isManual && spinIcon) spinIcon.classList.remove('fa-spin');
             }
-        }
-
-        async function startDownloadAndInstall() {
-            if (!window.activeUpdateObject) return;
-
-            const btn = document.getElementById('btn-start-update');
-            const dismissBtn = document.getElementById('btn-dismiss-update');
-            const progressArea = document.getElementById('update-progress-area');
-            const progressBar = document.getElementById('update-progress-bar');
-            const progressVal = document.getElementById('update-progress-val');
-
-            btn.disabled = true;
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-            dismissBtn.classList.add('hidden');
-            progressArea.classList.remove('hidden');
-
-            let downloaded = 0;
-            let contentLength = 0;
-
-            try {
-                await window.activeUpdateObject.downloadAndInstall((event) => {
-                    switch (event.event) {
-                        case 'Started':
-                            contentLength = event.data.contentLength;
-                            break;
-                        case 'Progress':
-                            downloaded += event.data.chunkLength;
-                            if (contentLength > 0) {
-                                const percent = Math.round((downloaded / contentLength) * 100);
-                                progressBar.style.width = `${percent}%`;
-                                progressVal.innerText = `${percent}%`;
-                            }
-                            break;
-                        case 'Finished':
-                            document.getElementById('update-status-text').innerText = "Güncelleme tamamlandı, yeniden başlatılıyor...";
-                            break;
-                    }
-                });
-
-                // Yeniden Başlat
-                if (window.__TAURI__ && window.__TAURI__.process) {
-                    await window.__TAURI__.process.relaunch();
-                }
-            } catch (err) {
-                console.error("Yükleme hatası:", err);
-                showToast("Güncelleme yüklenirken bir hata oluştu.", "fa-solid fa-triangle-exclamation text-rose-500");
-                btn.disabled = false;
-                btn.classList.remove('opacity-50', 'cursor-not-allowed');
-                dismissBtn.classList.remove('hidden');
-            }
-        }
-
-        function dismissUpdate() {
-            const modal = document.getElementById('modal-updater');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }
-
-        function showToast(msg, iconClass = "fa-solid fa-circle-info text-rose-400") {
-            const toast = document.getElementById('toast');
-            document.getElementById('toast-message').innerText = msg;
-            document.getElementById('toast-icon').className = `${iconClass} mr-2 text-sm`;
-            toast.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => { toast.classList.add('translate-y-20', 'opacity-0'); }, 3000);
         }
     </script>
 </body>

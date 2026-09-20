@@ -1,28 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KAYRA Suite",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "com.kayrastudio.suite",
   "build": {
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "label": "belge",
-        "title": "KAYRA Belge - PDF & KVKK",
-        "url": "belge.html",
-        "width": 1400,
-        "height": 900,
-        "decorations": true,
-        "resizable": true
-      },
-      {
-        "label": "tuval",
-        "title": "KAYRA Tuval - Grafik & Tasarım",
-        "url": "tuval.html",
-        "width": 1400,
-        "height": 900,
+        "label": "main",
+        "title": "KAYRA Suite - Creative Hub",
+        "url": "index.html",
+        "width": 1440,
+        "height": 920,
         "decorations": true,
         "resizable": true
       }
@@ -46,8 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": 
-"dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDMzE0NTlEREI5MkU1NUYKUldSZjVaTGJuVVV4akxiZGxhNXZhcHowNGJCTTlEMnZEdHhhZUVGUVEzQzY4aTgrY1FvejA0WmEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDMzE0NTlEREI5MkU1NUYKUldSZjVaTGJuVVV4akxiZGxhNXZhcHowNGJCTTlEMnZEdHhhZUVGUVEzQzY4aTgrY1FvejA0WmEK",
       "endpoints": [
         "https://github.com/Metehanncakr-00/kayra-suite/releases/latest/download/latest.json"
       ]
