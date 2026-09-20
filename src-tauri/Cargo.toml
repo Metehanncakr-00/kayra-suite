@@ -1,6 +1,6 @@
 [package]
 name = "kayra-suite"
-version = "1.0.2"
+version = "1.0.3"
 description = "KAYRA Suite - Yerel Belge ve Gorsel Tasarim Ekosistemi"
 authors = ["Metehan Cakir"]
 edition = "2021"
