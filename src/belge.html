@@ -22,6 +22,8 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <!-- PDF-lib Unicode font embedding (Türkçe karakterler dahil) -->
     <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+    <!-- Çoklu PDF bölümlerini tek ZIP içinde indirmek için -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -112,26 +114,147 @@
             color: transparent !important;
         }
         #redaction-canvas { z-index: 20; }
-        .pdf-text-layer.redaction-text-select-active {
+        .pdf-text-layer.redaction-text-select-active,
+        .pdf-page-text-layer.redaction-text-select-active {
             z-index: 24;
             pointer-events: auto;
             cursor: text;
         }
-        .pdf-text-layer.redaction-text-select-active > span {
+        .pdf-text-layer.redaction-text-select-active > span,
+        .pdf-page-text-layer.redaction-text-select-active > span {
             pointer-events: auto;
             cursor: text;
         }
-        .pdf-text-layer.annotation-text-select-active {
+        .pdf-text-layer.annotation-text-select-active,
+        .pdf-page-text-layer.annotation-text-select-active {
             z-index: 29;
             pointer-events: auto;
             cursor: text;
         }
-        .pdf-text-layer.annotation-text-select-active > span {
+        .pdf-text-layer.annotation-text-select-active > span,
+        .pdf-page-text-layer.annotation-text-select-active > span {
             pointer-events: auto;
             cursor: text;
         }
 
-        /* Acrobat benzeri vektörel yorum katmanı */
+        /* Her sayfanın kendi seçilebilir PDF.js metin katmanı vardır. Tek bir katmanın
+           aktif sayfalar arasında taşınması seçim başlangıcını kaybettirdiği için bu
+           katmanlar sayfa canvas'ı ile birlikte tembel olarak oluşturulur. */
+        .pdf-page-text-layer {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            line-height: 1;
+            z-index: 26;
+            pointer-events: auto;
+            cursor: text;
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            transform-origin: 0 0;
+        }
+        .pdf-page-text-layer > span {
+            color: transparent !important;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+            user-select: text !important;
+            -webkit-user-select: text !important;
+        }
+        .pdf-page-text-layer > br {
+            display: none !important;
+            pointer-events: none !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+        .pdf-page-text-layer ::selection {
+            background: rgba(37, 99, 235, 0.68) !important;
+            color: transparent !important;
+        }
+        .pdf-page-text-layer span[data-selection-skip="true"] {
+            pointer-events: none !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+        .pdf-page-text-layer span[data-selection-skip="true"]::selection { background: transparent !important; }
+        .pdf-page-text-layer.selection-disabled { pointer-events: none !important; }
+        .pdf-page-canvas { pointer-events: none; }
+
+        /* PDF form alanları: point koordinatlarından aynı viewport'a yerleşen HTML kontrolleri. */
+        .acroform-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 31;
+            pointer-events: none;
+            overflow: visible;
+        }
+        .acroform-layer.form-placement-active {
+            pointer-events: auto;
+            cursor: crosshair;
+        }
+        .acroform-widget {
+            position: absolute;
+            pointer-events: auto;
+            box-sizing: border-box;
+            color: #111827;
+            accent-color: #2563eb;
+            font-family: Arimo, Inter, Arial, sans-serif;
+        }
+        .acroform-widget input[type="text"],
+        .acroform-widget select {
+            width: 100%; height: 100%; min-width: 0;
+            border: 1px solid rgba(37, 99, 235, .78);
+            border-radius: 2px;
+            background: rgba(255, 255, 255, .88);
+            color: #111827;
+            padding: 1px 3px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .acroform-widget input:focus,
+        .acroform-widget select:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, .28);
+            background: #fff;
+        }
+        .acroform-checkbox,
+        .acroform-radio {
+            width: 100%; height: 100%; margin: 0;
+            cursor: pointer;
+            filter: drop-shadow(0 0 1px rgba(0,0,0,.45));
+        }
+        .acroform-designer-widget {
+            border: 1.5px dashed #22d3ee;
+            background: rgba(34, 211, 238, .08);
+            border-radius: 3px;
+        }
+        .acroform-designer-widget.selected {
+            border-style: solid;
+            box-shadow: 0 0 0 2px rgba(34, 211, 238, .25);
+        }
+        .acroform-drag-handle {
+            position: absolute; left: 50%; top: -18px; transform: translateX(-50%);
+            width: 28px; height: 16px; border-radius: 5px 5px 0 0;
+            border: 1px solid #0891b2; background: #0e7490; color: white;
+            display: flex; align-items: center; justify-content: center;
+            cursor: move; font-size: 9px; pointer-events: auto;
+        }
+        .acroform-resize-handle {
+            position: absolute; right: -6px; bottom: -6px;
+            width: 12px; height: 12px; border-radius: 50%;
+            border: 2px solid white; background: #06b6d4;
+            cursor: nwse-resize; pointer-events: auto;
+        }
+        .acroform-delete-handle {
+            position: absolute; right: -18px; top: -18px;
+            width: 17px; height: 17px; border-radius: 50%;
+            background: #e11d48; color: white; font-size: 9px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; pointer-events: auto;
+        }
+        .form-placement-active .page-container { cursor: crosshair; }
+
+        /* Vektörel PDF yorum katmanı */
         .annotation-layer {
             position: absolute;
             inset: 0;
@@ -196,7 +319,7 @@
             color: #fff !important;
         }
 
-        /* Canva tarzı doğrudan PDF metin düzenleme katmanı */
+        /* Doğrudan PDF metin düzenleme katmanı */
         .pdf-edit-layer {
             position: absolute;
             inset: 0;
@@ -260,7 +383,7 @@
             color: #d4d4d8 !important;
         }
 
-        /* Acrobat tarzı gerçek sayfa düzenleme masası */
+        /* Gerçek PDF sayfa düzenleme masası */
         #page-organizer-workspace {
             background:
                 radial-gradient(circle at 50% -15%, rgba(37, 99, 235, 0.10), transparent 34%),
@@ -459,7 +582,7 @@
             opacity: 1 !important; 
         }
 
-        /* Acrobat benzeri kesintisiz, bağımsız çoklu sayfa akışı */
+        /* Kesintisiz, bağımsız çoklu PDF sayfa akışı */
         #page-flow {
             width: max-content;
             min-width: 100%;
@@ -619,6 +742,7 @@
 <body class="bg-kayra-bg text-gray-200 font-sans h-screen w-screen flex flex-col text-[13px]">
 
     <input type="file" id="pdf-file-input" accept="application/pdf" multiple class="hidden">
+    <input type="file" id="merge-file-input" accept="application/pdf,.pdf" multiple class="hidden">
     <input type="file" id="image-file-input" accept="image/*" class="hidden">
 
     <header class="h-11 bg-kayra-panel border-b border-kayra-border flex items-center justify-between px-2 select-none z-50 relative shrink-0 shadow-md">
@@ -641,6 +765,9 @@
                         </div>
                         <div class="dd-item" onclick="duplicateDocument()">
                             <div><i class="fa-regular fa-copy dd-icon"></i> Kopyasını oluştur</div>
+                        </div>
+                        <div class="dd-item" onclick="openMergeStudio()">
+                            <div><i class="fa-solid fa-object-group dd-icon text-violet-400"></i> PDF'leri Birleştir...</div>
                         </div>
                         <div class="dd-divider"></div>
                         <div class="has-submenu dd-item" onclick="openExportModal()">
@@ -680,7 +807,7 @@
                         <div class="dd-divider"></div>
                         <div class="dd-item" onclick="copyDocumentText()"><div><i class="fa-regular fa-copy dd-icon"></i> Sayfa Metnini Kopyala</div> <span class="dd-shortcut">Ctrl+C</span></div>
                         <div class="dd-item" onclick="spawnInteractiveTextBox()"><div><i class="fa-solid fa-paste dd-icon"></i> Metin Olarak Yapıştır</div> <span class="dd-shortcut">Ctrl+V</span></div>
-                        <div class="dd-item" onclick="togglePdfTextEditMode()"><div><i class="fa-solid fa-pen-to-square dd-icon text-blue-400"></i> Metinleri Düzenle (Canva Modu)</div></div>
+                        <div class="dd-item" onclick="togglePdfTextEditMode()"><div><i class="fa-solid fa-pen-to-square dd-icon text-blue-400"></i> PDF Metinlerini Düzenle</div></div>
                         <div class="dd-divider"></div>
                         <div class="dd-item" onclick="openDetailedFindReplaceModal()"><div><i class="fa-solid fa-magnifying-glass dd-icon text-cyan-400"></i> Bul ve Değiştir</div> <span class="dd-shortcut">Ctrl+H</span></div>
                     </div>
@@ -704,6 +831,7 @@
                         <div class="dd-item" onclick="triggerImageUpload()"><div><i class="fa-regular fa-image dd-icon text-emerald-400"></i> Resim / Logo</div></div>
                         <div class="dd-item" onclick="openSignatureModal()"><div><i class="fa-solid fa-signature dd-icon text-rose-400"></i> 5070 E-İmza & Kaşe</div></div>
                         <div class="dd-item" onclick="toggleAnnotationMode(true)"><div><i class="fa-regular fa-comment-dots dd-icon text-yellow-400"></i> Yorum ve Açıklama</div></div>
+                        <div class="dd-item" onclick="toggleFormDesigner(true)"><div><i class="fa-regular fa-rectangle-list dd-icon text-cyan-400"></i> İnteraktif Form Alanı</div></div>
                         <div class="dd-divider"></div>
                         <div class="dd-item" onclick="openWatermarkModal()"><div><i class="fa-solid fa-stamp dd-icon text-yellow-400"></i> Gelişmiş Filigran</div></div>
                         <div class="dd-item" onclick="stampPageNumbers()"><div><i class="fa-solid fa-hashtag dd-icon text-purple-400"></i> Sayfa Numaralandır</div></div>
@@ -727,6 +855,8 @@
                         <div class="dd-item" onclick="openCompressModal()"><div><i class="fa-solid fa-compress dd-icon text-amber-400"></i> PDF'i Sıkıştır</div></div>
                         <div class="dd-item" onclick="openPageOrganizerModal()"><div><i class="fa-solid fa-table-cells-large dd-icon text-blue-400"></i> Sayfa Sıralayıcı (Grid)</div></div>
                         <div class="dd-item" onclick="toggleAnnotationMode(true)"><div><i class="fa-solid fa-highlighter dd-icon text-yellow-400"></i> Yorum ve Açıklama Araçları</div></div>
+                        <div class="dd-item" onclick="toggleFormDesigner(true)"><div><i class="fa-solid fa-list-check dd-icon text-cyan-400"></i> Form Hazırlama Sihirbazı</div></div>
+                        <div class="dd-item" onclick="openSplitStudio()"><div><i class="fa-solid fa-scissors dd-icon text-fuchsia-400"></i> Belgeyi Böl...</div></div>
                     </div>
                 </div>
 
@@ -763,10 +893,10 @@
             </button>
 
 <button onclick="window.location.href='index.html?from=module'" 
-    id="btn-auth-header" 
+    id="btn-module-exit" 
     class="flex items-center space-x-1.5 text-white bg-rose-600 hover:bg-rose-700 transition px-3.5 py-1 rounded-md shadow text-xs font-semibold">
     <i class="fa-solid fa-home"></i>
-    <span id="auth-label">Modülden Çık</span>
+    <span id="module-exit-label">Modülden Çık</span>
 </button>
 
         </div>
@@ -823,6 +953,10 @@
                     <button onclick="toggleAnnotationMode(true)" class="w-full text-left px-3 py-2 bg-kayra-surface hover:bg-kayra-hover rounded-lg border border-kayra-border flex items-center space-x-2.5 transition">
                         <i class="fa-solid fa-highlighter text-yellow-400 w-4"></i>
                         <div><div class="font-semibold text-gray-200 text-xs">Yorum ve Açıklama</div><div class="text-[10px] text-gray-400">Vurgu, not, çizim ve işaretleme</div></div>
+                    </button>
+                    <button onclick="toggleFormDesigner(true)" class="w-full text-left px-3 py-2 bg-kayra-surface hover:bg-kayra-hover rounded-lg border border-kayra-border flex items-center space-x-2.5 transition">
+                        <i class="fa-regular fa-rectangle-list text-cyan-400 w-4"></i>
+                        <div><div class="font-semibold text-gray-200 text-xs">Form Hazırla</div><div class="text-[10px] text-gray-400">Metin, onay ve radyo alanı ekle</div></div>
                     </button>
                     <button onclick="openWatermarkModal()" class="w-full text-left px-3 py-2 bg-kayra-surface hover:bg-kayra-hover rounded-lg border border-kayra-border flex items-center space-x-2.5 transition">
                         <i class="fa-solid fa-stamp text-amber-400 w-4"></i>
@@ -946,6 +1080,26 @@
                     </div>
                 </div>
 
+                <div id="form-toolbar" class="hidden h-12 border-b border-cyan-500/30 bg-[#17252a] items-center justify-between px-3 shrink-0 shadow-lg z-30 text-xs select-none">
+                    <div class="flex items-center gap-1.5">
+                        <span class="font-bold text-cyan-300 px-2 flex items-center"><i class="fa-regular fa-rectangle-list mr-1.5"></i> PDF Formu</span>
+                        <div class="w-px h-6 bg-cyan-500/25"></div>
+                        <button id="form-tool-select" onclick="setFormDesignerTool('select')" class="px-2.5 py-1.5 rounded-md border border-cyan-400/50 bg-cyan-600 text-white cursor-pointer"><i class="fa-solid fa-arrow-pointer mr-1"></i> Seç / Taşı</button>
+                        <button id="form-tool-text" onclick="setFormDesignerTool('text')" class="px-2.5 py-1.5 rounded-md border border-kayra-border bg-kayra-surface hover:bg-kayra-hover cursor-pointer"><i class="fa-solid fa-i-cursor text-blue-400 mr-1"></i> Metin Kutusu</button>
+                        <button id="form-tool-checkbox" onclick="setFormDesignerTool('checkbox')" class="px-2.5 py-1.5 rounded-md border border-kayra-border bg-kayra-surface hover:bg-kayra-hover cursor-pointer"><i class="fa-regular fa-square-check text-emerald-400 mr-1"></i> Onay Kutusu</button>
+                        <button id="form-tool-radio" onclick="setFormDesignerTool('radio')" class="px-2.5 py-1.5 rounded-md border border-kayra-border bg-kayra-surface hover:bg-kayra-hover cursor-pointer"><i class="fa-regular fa-circle-dot text-violet-400 mr-1"></i> Radyo</button>
+                        <label class="flex items-center gap-1.5 ml-1 text-gray-400">Alan adı
+                            <input id="form-field-name" type="text" value="Alan_1" class="w-28 bg-black/30 border border-kayra-border rounded px-2 py-1 text-gray-100 outline-none focus:border-cyan-500" spellcheck="false">
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="downloadAcroFormPdf(false)" class="px-3 py-1.5 border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 rounded-md cursor-pointer" title="Alanlar doldurulabilir kalır"><i class="fa-solid fa-file-pen mr-1"></i> Düzenlenebilir İndir</button>
+                        <button onclick="downloadAcroFormPdf(true)" class="px-3 py-1.5 border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 rounded-md cursor-pointer" title="Form alanlarını kalıcı ve kilitli hale getirir"><i class="fa-solid fa-lock mr-1"></i> Dondurulmuş İndir</button>
+                        <button onclick="commitAcroFormChanges()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-md cursor-pointer"><i class="fa-solid fa-check mr-1"></i> PDF'e Kaydet</button>
+                        <button onclick="toggleFormDesigner(false)" class="w-7 h-7 rounded-md hover:bg-rose-600 text-gray-300 hover:text-white cursor-pointer" title="Form tasarımını kapat"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+
                 <div id="floating-search-bar" class="hidden absolute top-3 right-6 z-40 bg-[#202024] border border-[#38383f] rounded-xl shadow-2xl p-2 flex items-center space-x-2 text-xs">
                     <div class="relative flex items-center">
                         <span class="absolute -top-2 left-2 px-1 text-[10px] font-semibold text-blue-400 bg-[#202024] rounded">Dokümanda bul</span>
@@ -968,7 +1122,7 @@
 
                 <div id="pdf-text-edit-toolbar" class="hidden absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-[#202024]/95 border border-blue-500/40 rounded-xl shadow-2xl px-2.5 py-2 items-center gap-2 text-xs backdrop-blur-md whitespace-nowrap">
                     <span class="font-bold text-blue-300 flex items-center px-1.5">
-                        <i class="fa-solid fa-pen-to-square mr-1.5"></i> Canva Metin Modu
+                        <i class="fa-solid fa-pen-to-square mr-1.5"></i> PDF Metin Modu
                     </span>
                     <div class="w-px h-6 bg-kayra-border"></div>
                     <button id="btn-pdf-edit-single" onclick="setPdfTextEditViewMode('single')" class="mode-active px-3 py-1.5 rounded-lg border border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500 transition cursor-pointer" title="Bir metin bloğuna tıklayıp doğrudan düzenleyin">
@@ -1223,6 +1377,11 @@
                         <div class="w-7 h-7 rounded bg-white/20 flex items-center justify-center mr-3 shrink-0 group-hover:scale-110 transition"><i class="fa-solid fa-download text-xs"></i></div>
                         <div><div class="font-bold text-xs">İndir / Dışa Aktar (8 Format)</div><div class="text-rose-200 text-[10px]">Word, PDF, ODT, TXT, MD...</div></div>
                     </button>
+
+                    <button onclick="openMergeStudio()" id="btn-merge-pdf" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-violet-500/30 rounded-lg text-left transition group cursor-pointer">
+                        <div class="w-7 h-7 rounded bg-violet-950/80 flex items-center justify-center text-violet-300 mr-3 shrink-0 group-hover:bg-violet-600 group-hover:text-white transition"><i class="fa-solid fa-object-group text-xs"></i></div>
+                        <div><div class="text-gray-200 font-semibold text-xs">PDF'leri Birleştir</div><div class="text-gray-500 text-[10px]">Dosyaları sıralayıp tek PDF yap</div></div>
+                    </button>
                     
                     <div class="h-px bg-kayra-border my-1"></div>
 
@@ -1238,7 +1397,12 @@
 
                     <button onclick="togglePdfTextEditMode()" id="btn-edit-pdf-text" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
                         <div class="w-7 h-7 rounded bg-blue-950/80 flex items-center justify-center text-blue-300 mr-3 shrink-0 group-hover:text-white group-hover:bg-blue-600 transition"><i class="fa-solid fa-pen-to-square text-xs"></i></div>
-                        <div><div class="text-gray-200 font-semibold text-xs">Metinleri Düzenle</div><div class="text-gray-500 text-[10px]">Canva modu: PDF yazısına tıkla</div></div>
+                        <div><div class="text-gray-200 font-semibold text-xs">Metinleri Düzenle</div><div class="text-gray-500 text-[10px]">PDF yazısına tıklayıp düzenle</div></div>
+                    </button>
+
+                    <button onclick="toggleFormDesigner(true)" id="btn-form-designer" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
+                        <div class="w-7 h-7 rounded bg-cyan-950/80 flex items-center justify-center text-cyan-300 mr-3 shrink-0 group-hover:text-white group-hover:bg-cyan-600 transition"><i class="fa-regular fa-rectangle-list text-xs"></i></div>
+                        <div><div class="text-gray-200 font-semibold text-xs">Form Hazırla / Doldur</div><div class="text-gray-500 text-[10px]">PDF form alanlarını yönet</div></div>
                     </button>
 
                     <button onclick="triggerImageUpload()" id="btn-add-image" class="w-full flex items-center px-3.5 py-2.5 bg-kayra-surface hover:bg-kayra-hover border border-kayra-border rounded-lg text-left transition group cursor-pointer">
@@ -1580,6 +1744,56 @@
         </div>
     </div>
 
+    <!-- PDF BİRLEŞTİRME STÜDYOSU -->
+    <div id="modal-merge-pdf" class="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#202024] border border-[#3f3f46] rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden modal-enter flex flex-col max-h-[88vh]">
+            <div class="px-5 py-4 border-b border-kayra-border flex items-center justify-between bg-violet-950/25">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-violet-600/20 border border-violet-500/40 text-violet-300 flex items-center justify-center"><i class="fa-solid fa-object-group"></i></div>
+                    <div><div class="text-white font-bold text-sm">PDF Birleştirme Stüdyosu</div><div class="text-[10px] text-gray-400">Dosyaları sürükleyerek nihai sıralamayı belirleyin</div></div>
+                </div>
+                <button onclick="closeModal('modal-merge-pdf')" class="w-8 h-8 rounded-lg hover:bg-rose-600 text-gray-400 hover:text-white cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 flex-1 min-h-0 overflow-hidden flex flex-col gap-4">
+                <div id="merge-drop-zone" onclick="document.getElementById('merge-file-input').click()" class="shrink-0 border-2 border-dashed border-violet-500/40 hover:border-violet-400 rounded-xl bg-violet-500/5 hover:bg-violet-500/10 px-5 py-5 flex items-center justify-center gap-3 cursor-pointer transition">
+                    <i class="fa-solid fa-file-circle-plus text-2xl text-violet-400"></i>
+                    <div><div class="text-gray-100 font-bold text-xs">PDF dosyalarını seçin veya buraya bırakın</div><div class="text-[10px] text-gray-500 mt-0.5">Birden fazla dosya aynı anda eklenebilir</div></div>
+                </div>
+                <div class="flex items-center justify-between text-[11px]"><span id="merge-file-count" class="text-gray-400">0 dosya</span><button onclick="clearMergeFiles()" class="text-rose-400 hover:text-rose-300 cursor-pointer"><i class="fa-solid fa-broom mr-1"></i>Listeyi temizle</button></div>
+                <div id="merge-file-list" class="flex-1 min-h-[220px] overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                    <div class="h-full min-h-[200px] flex items-center justify-center text-gray-600 text-xs">Henüz PDF eklenmedi.</div>
+                </div>
+            </div>
+            <div class="px-5 py-4 border-t border-kayra-border bg-[#18181b] flex items-center justify-between">
+                <span id="merge-status" class="text-[10px] text-gray-500 font-mono">Hazır</span>
+                <div class="flex gap-2"><button onclick="closeModal('modal-merge-pdf')" class="px-4 py-2 rounded-lg bg-kayra-surface hover:bg-kayra-hover text-gray-300 text-xs cursor-pointer">İptal</button><button id="btn-merge-open" onclick="mergePdfFilesAndOpen()" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" disabled><i class="fa-solid fa-object-group mr-1.5"></i>Birleştir ve Aç</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PDF BÖLME STÜDYOSU -->
+    <div id="modal-split-pdf" class="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#202024] border border-[#3f3f46] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden modal-enter">
+            <div class="px-5 py-4 border-b border-kayra-border flex items-center justify-between bg-fuchsia-950/20">
+                <div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-fuchsia-600/20 border border-fuchsia-500/40 text-fuchsia-300 flex items-center justify-center"><i class="fa-solid fa-scissors"></i></div><div><div class="text-white font-bold text-sm">PDF Bölme Stüdyosu</div><div id="split-document-info" class="text-[10px] text-gray-400">Belgeyi bağımsız PDF parçalarına ayırın</div></div></div>
+                <button onclick="closeModal('modal-split-pdf')" class="w-8 h-8 rounded-lg hover:bg-rose-600 text-gray-400 hover:text-white cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 space-y-3 text-xs">
+                <label class="block border border-fuchsia-500/35 bg-fuchsia-500/8 rounded-xl p-3.5 cursor-pointer hover:bg-fuchsia-500/12 transition">
+                    <div class="flex items-start gap-3"><input type="radio" name="split-mode" value="single" checked onchange="updateSplitStudioUI()" class="mt-0.5 accent-fuchsia-500"><div><div class="text-gray-100 font-bold">Mod A — Her sayfa ayrı PDF</div><div class="text-[10px] text-gray-500 mt-1">Belgedeki her sayfa tek başına PDF yapılır ve ZIP içinde indirilir.</div></div></div>
+                </label>
+                <label class="block border border-kayra-border bg-kayra-surface rounded-xl p-3.5 cursor-pointer hover:border-fuchsia-500/40 transition">
+                    <div class="flex items-start gap-3"><input type="radio" name="split-mode" value="ranges" onchange="updateSplitStudioUI()" class="mt-0.5 accent-fuchsia-500"><div class="flex-1"><div class="text-gray-100 font-bold">Mod B — Sayfa aralıklarına göre</div><div class="text-[10px] text-gray-500 mt-1 mb-2">Virgülle ayrılmış aralıklar: 1-3, 4-7, 8-12</div><input id="split-ranges" type="text" value="1-3, 4-7" disabled class="w-full bg-black/30 border border-kayra-border rounded-lg px-3 py-2 text-gray-100 outline-none focus:border-fuchsia-500 disabled:opacity-40" placeholder="1-3, 4-7, 8-12"></div></div>
+                </label>
+                <label class="block border border-kayra-border bg-kayra-surface rounded-xl p-3.5 cursor-pointer hover:border-fuchsia-500/40 transition">
+                    <div class="flex items-start gap-3"><input type="radio" name="split-mode" value="chunks" onchange="updateSplitStudioUI()" class="mt-0.5 accent-fuchsia-500"><div class="flex-1"><div class="text-gray-100 font-bold">Mod C — Her N sayfada bir</div><div class="text-[10px] text-gray-500 mt-1 mb-2">Belge belirlediğiniz sayfa sayısına göre eşit parçalara ayrılır.</div><div class="flex items-center gap-2"><span class="text-gray-400">Her</span><input id="split-chunk-size" type="number" min="1" value="2" disabled class="w-20 bg-black/30 border border-kayra-border rounded-lg px-3 py-2 text-gray-100 outline-none focus:border-fuchsia-500 disabled:opacity-40"><span class="text-gray-400">sayfada yeni PDF</span></div></div></div>
+                </label>
+                <div id="split-validation" class="min-h-[18px] text-[10px] text-gray-500 font-mono pt-1">Her sayfa için ayrı çıktı hazırlanacak.</div>
+            </div>
+            <div class="px-5 py-4 border-t border-kayra-border bg-[#18181b] flex items-center justify-end gap-2"><button onclick="closeModal('modal-split-pdf')" class="px-4 py-2 rounded-lg bg-kayra-surface hover:bg-kayra-hover text-gray-300 text-xs cursor-pointer">İptal</button><button id="btn-split-download" onclick="splitCurrentDocument()" class="px-5 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold text-xs cursor-pointer"><i class="fa-solid fa-file-zipper mr-1.5"></i>Böl ve ZIP İndir</button></div>
+        </div>
+    </div>
+
     <!-- TOAST BİLDİRİMİ -->
     <div id="toast" class="fixed bottom-5 right-5 bg-rose-600 text-white px-4 py-2.5 rounded-lg shadow-2xl transform translate-y-20 opacity-0 transition-all z-50 flex items-center font-medium text-xs pointer-events-none">
         <i id="toast-icon" class="fa-solid fa-circle-info mr-2 text-sm"></i> <span id="toast-message">İşlem başarılı!</span>
@@ -1588,6 +1802,7 @@
     <script>
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('pdf-file-input');
+        const mergeFileInput = document.getElementById('merge-file-input');
         const imageFileInput = document.getElementById('image-file-input');
         
         const emptyState = document.getElementById('empty-state');
@@ -1602,6 +1817,8 @@
         const toolbar = document.getElementById('toolbar');
         const redactionToolbar = document.getElementById('redaction-toolbar');
         const annotationToolbar = document.getElementById('annotation-toolbar');
+        const formToolbar = document.getElementById('form-toolbar');
+        const formFieldNameInput = document.getElementById('form-field-name');
         const pageIndicator = document.getElementById('page-indicator');
         const zoomIndicator = document.getElementById('zoom-indicator');
         const btnExport = document.getElementById('btn-export');
@@ -1729,6 +1946,23 @@
         let annotationHistoryIndex = 0;
         let pendingAnnotationSelection = null;
         let activeInkDraft = null;
+
+        let formDesignerActive = false;
+        let formDesignerTool = 'select';
+        let acroFormFields = [];
+        let designerFormFields = [];
+        let formsDirty = false;
+        let selectedDesignerFieldId = null;
+        let activeFormPointerAction = null;
+        let formFieldSequence = 0;
+        let formRenderGeneration = 0;
+        let suppressFormValueEvents = false;
+
+        let mergeStudioFiles = [];
+        let mergeStudioSequence = 0;
+        let draggedMergeFileId = null;
+        let mergeStudioBusy = false;
+        let splitStudioBusy = false;
 
         let isRedactionMode = false;
         let isDrawing = false;
@@ -2539,6 +2773,12 @@
             currentPageNum = 0;
             documentAnnotations = [];
             annotationsDirty = false;
+            acroFormFields = [];
+            designerFormFields = [];
+            formsDirty = false;
+            formDesignerActive = false;
+            formToolbar.classList.add('hidden');
+            formToolbar.classList.remove('flex');
             deletedAnnotationIds.clear();
             resetAnnotationHistory();
             pageRenderGeneration++;
@@ -2786,6 +3026,8 @@
                 return;
             }
             if (annotationModeActive) await toggleAnnotationMode(false);
+            if (formDesignerActive) await toggleFormDesigner(false);
+            if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return;
             if (annotationsDirty && !await commitAnnotationsToPdf({ silent: true })) return;
             if (pdfTextEditMode) {
                 const finished = await finishPdfTextEditMode({ silent: true });
@@ -2899,13 +3141,14 @@
             showToast(`${format.toUpperCase()} hazırlanıyor...`, "bg-emerald-600", "fa-solid fa-spinner fa-spin");
 
             if (format === 'pdf') {
+                if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return;
                 if (annotationsDirty) {
                     const saved = await commitAnnotationsToPdf({ silent: true });
                     if (!saved) return;
                 }
                 const pdfBytes = currentPdfBytes || await pdfLibDoc.save();
                 downloadBlob(new Blob([pdfBytes], { type: 'application/pdf' }), `${title}.pdf`);
-                showToast('PDF yorumlarıyla birlikte indirildi.', 'bg-emerald-600', 'fa-solid fa-download');
+                showToast('PDF yorumları ve form alanlarıyla birlikte indirildi.', 'bg-emerald-600', 'fa-solid fa-download');
                 return;
             }
 
@@ -2936,6 +3179,833 @@
             const a = document.createElement('a'); a.href = url; a.download = name;
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
+
+        // =========================================================================
+        // PDF BİRLEŞTİRME VE BÖLME STÜDYOLARI
+        // =========================================================================
+        function formatByteSize(bytes) {
+            const value = Math.max(0, Number(bytes) || 0);
+            if (value < 1024) return `${value} B`;
+            if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+            return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function safePdfBaseName(value, fallback = 'Belge') {
+            const base = String(value || fallback).replace(/\.pdf$/i, '').trim() || fallback;
+            return base.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 90);
+        }
+
+        function openMergeStudio() {
+            renderMergeStudioFiles();
+            openModal('modal-merge-pdf');
+        }
+
+        async function addFilesToMergeStudio(fileList) {
+            const files = Array.from(fileList || []).filter(file => file && (/\.pdf$/i.test(file.name) || file.type === 'application/pdf'));
+            if (!files.length) { showToast('Lütfen geçerli PDF dosyaları seçin.', 'bg-amber-600'); return; }
+            const status = document.getElementById('merge-status');
+            for (let index = 0; index < files.length; index++) {
+                const file = files[index];
+                if (status) status.textContent = `${index + 1}/${files.length} dosya inceleniyor…`;
+                try {
+                    const bytes = new Uint8Array(await file.arrayBuffer());
+                    const documentHandle = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: false });
+                    mergeStudioFiles.push({
+                        id: `merge-file-${Date.now()}-${++mergeStudioSequence}`,
+                        name: file.name, bytes, size: bytes.byteLength,
+                        pageCount: documentHandle.getPageCount()
+                    });
+                } catch (error) {
+                    console.warn(`Birleştirme listesine eklenemedi: ${file.name}`, error);
+                    showToast(`${file.name} açılamadı veya parola korumalı.`, 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+                }
+                if (index % 3 === 2) await new Promise(requestAnimationFrame);
+            }
+            if (status) status.textContent = 'Hazır';
+            if (mergeFileInput) mergeFileInput.value = '';
+            renderMergeStudioFiles();
+        }
+
+        function renderMergeStudioFiles() {
+            const list = document.getElementById('merge-file-list');
+            const count = document.getElementById('merge-file-count');
+            const button = document.getElementById('btn-merge-open');
+            if (!list || !count || !button) return;
+            const totalPages = mergeStudioFiles.reduce((sum, file) => sum + file.pageCount, 0);
+            count.textContent = `${mergeStudioFiles.length} dosya · ${totalPages} sayfa`;
+            button.disabled = mergeStudioFiles.length < 2 || mergeStudioBusy;
+            list.innerHTML = '';
+            if (!mergeStudioFiles.length) {
+                list.innerHTML = '<div class="h-full min-h-[200px] flex items-center justify-center text-gray-600 text-xs">Henüz PDF eklenmedi.</div>';
+                return;
+            }
+            mergeStudioFiles.forEach((file, index) => {
+                const card = document.createElement('div');
+                card.className = 'merge-file-card group flex items-center gap-3 p-3 bg-kayra-surface border border-kayra-border hover:border-violet-500/50 rounded-xl transition cursor-move';
+                card.draggable = true;
+                card.dataset.mergeFileId = file.id;
+                card.innerHTML = `
+                    <span class="w-7 h-7 rounded-lg bg-violet-600/15 text-violet-300 border border-violet-500/25 flex items-center justify-center font-mono font-bold text-[11px] shrink-0">${index + 1}</span>
+                    <span class="w-9 h-11 rounded-md bg-white text-rose-600 flex items-center justify-center shadow shrink-0"><i class="fa-regular fa-file-pdf text-lg"></i></span>
+                    <span class="min-w-0 flex-1"><span class="block text-gray-100 font-semibold text-xs truncate"></span><span class="block text-[10px] text-gray-500 mt-1">${file.pageCount} sayfa · ${formatByteSize(file.size)}</span></span>
+                    <span class="text-gray-600 group-hover:text-violet-300"><i class="fa-solid fa-grip-vertical"></i></span>
+                    <button type="button" class="w-7 h-7 rounded-lg hover:bg-rose-600/25 text-gray-500 hover:text-rose-400 cursor-pointer" title="Listeden kaldır"><i class="fa-solid fa-trash text-[10px]"></i></button>`;
+                card.querySelector('span.min-w-0 > span').textContent = file.name;
+                card.querySelector('button').addEventListener('click', event => { event.stopPropagation(); removeMergeStudioFile(file.id); });
+                card.addEventListener('dragstart', event => {
+                    draggedMergeFileId = file.id;
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', file.id);
+                    requestAnimationFrame(() => card.classList.add('opacity-40'));
+                });
+                card.addEventListener('dragend', () => { draggedMergeFileId = null; card.classList.remove('opacity-40'); });
+                card.addEventListener('dragover', event => {
+                    if (!draggedMergeFileId || draggedMergeFileId === file.id) return;
+                    event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+                    card.classList.add('ring-2', 'ring-violet-500/60');
+                });
+                card.addEventListener('dragleave', () => card.classList.remove('ring-2', 'ring-violet-500/60'));
+                card.addEventListener('drop', event => {
+                    event.preventDefault(); card.classList.remove('ring-2', 'ring-violet-500/60');
+                    reorderMergeStudioFile(draggedMergeFileId, file.id, event.clientY > card.getBoundingClientRect().top + card.offsetHeight / 2);
+                });
+                list.appendChild(card);
+            });
+        }
+
+        function reorderMergeStudioFile(sourceId, targetId, placeAfter = false) {
+            const sourceIndex = mergeStudioFiles.findIndex(file => file.id === sourceId);
+            let targetIndex = mergeStudioFiles.findIndex(file => file.id === targetId);
+            if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+            const [moved] = mergeStudioFiles.splice(sourceIndex, 1);
+            targetIndex = mergeStudioFiles.findIndex(file => file.id === targetId);
+            mergeStudioFiles.splice(targetIndex + (placeAfter ? 1 : 0), 0, moved);
+            draggedMergeFileId = null;
+            renderMergeStudioFiles();
+        }
+
+        function removeMergeStudioFile(id) {
+            mergeStudioFiles = mergeStudioFiles.filter(file => file.id !== id);
+            renderMergeStudioFiles();
+        }
+
+        function clearMergeFiles() {
+            if (mergeStudioBusy) return;
+            mergeStudioFiles = [];
+            renderMergeStudioFiles();
+        }
+
+        async function mergePdfFilesAndOpen() {
+            if (mergeStudioBusy || mergeStudioFiles.length < 2) return;
+            mergeStudioBusy = true;
+            const button = document.getElementById('btn-merge-open');
+            const status = document.getElementById('merge-status');
+            const originalButton = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Birleştiriliyor…';
+            try {
+                const outputDocument = await PDFLib.PDFDocument.create();
+                for (let index = 0; index < mergeStudioFiles.length; index++) {
+                    const sourceItem = mergeStudioFiles[index];
+                    if (status) status.textContent = `${index + 1}/${mergeStudioFiles.length}: ${sourceItem.name}`;
+                    const sourceDocument = await PDFLib.PDFDocument.load(sourceItem.bytes.slice(0), { ignoreEncryption: false });
+                    const pageIndices = sourceDocument.getPageIndices();
+                    const pages = await outputDocument.copyPages(sourceDocument, pageIndices);
+                    pages.forEach(page => outputDocument.addPage(page));
+                    await new Promise(requestAnimationFrame);
+                }
+                outputDocument.setTitle('Birleştirilmiş PDF Belgesi');
+                outputDocument.setProducer('KAYRA Belge');
+                outputDocument.setCreationDate(new Date());
+                const bytes = await outputDocument.save({ useObjectStreams: true });
+                const opened = await openDocumentBytesInNewTab(`Birlesik_Belge_${new Date().toISOString().slice(0, 10)}.pdf`, new Uint8Array(bytes));
+                if (!opened) throw new Error('Birleştirilen belge yeni sekmede açılamadı.');
+                closeModal('modal-merge-pdf');
+                mergeStudioFiles = [];
+                renderMergeStudioFiles();
+                showToast(`${outputDocument.getPageCount()} sayfalık birleşik PDF yeni sekmede açıldı.`, 'bg-emerald-600', 'fa-solid fa-object-group');
+            } catch (error) {
+                console.error('PDF birleştirme başarısız:', error);
+                showToast(`PDF'ler birleştirilemedi: ${String(error.message || error).slice(0, 90)}`, 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+            } finally {
+                mergeStudioBusy = false;
+                button.disabled = mergeStudioFiles.length < 2;
+                button.innerHTML = originalButton;
+                if (status) status.textContent = 'Hazır';
+            }
+        }
+
+        function openSplitStudio() {
+            if (!pdfLibDoc || !pdfjsDoc || !currentPdfBytes) { showToast('Önce bölünecek bir PDF belgesi açın.', 'bg-amber-600'); return; }
+            document.getElementById('split-document-info').textContent = `${document.getElementById('doc-title').innerText} · ${pdfjsDoc.numPages} sayfa`;
+            updateSplitStudioUI();
+            openModal('modal-split-pdf');
+        }
+
+        function getSplitMode() {
+            return document.querySelector('input[name="split-mode"]:checked')?.value || 'single';
+        }
+
+        function parseSplitRanges(input, pageCount) {
+            const parts = String(input || '').split(',').map(value => value.trim()).filter(Boolean);
+            if (!parts.length) throw new Error('En az bir sayfa aralığı girin.');
+            return parts.map((part, index) => {
+                const match = part.match(/^(\d+)\s*(?:-\s*(\d+))?$/);
+                if (!match) throw new Error(`Geçersiz aralık: “${part}”`);
+                const start = Number(match[1]);
+                const end = Number(match[2] || match[1]);
+                if (start < 1 || end < start || end > pageCount) throw new Error(`Aralık 1-${pageCount} dışında: “${part}”`);
+                return { start, end, label: `${start}-${end}`, indices: Array.from({ length: end - start + 1 }, (_, offset) => start - 1 + offset), order: index + 1 };
+            });
+        }
+
+        function buildSplitSegments(mode, pageCount) {
+            if (mode === 'single') return Array.from({ length: pageCount }, (_, index) => ({ start: index + 1, end: index + 1, label: `${index + 1}`, indices: [index] }));
+            if (mode === 'ranges') return parseSplitRanges(document.getElementById('split-ranges').value, pageCount);
+            const size = Math.floor(Number(document.getElementById('split-chunk-size').value));
+            if (!Number.isInteger(size) || size < 1) throw new Error('Sayfa grubu büyüklüğü en az 1 olmalıdır.');
+            const segments = [];
+            for (let start = 1; start <= pageCount; start += size) {
+                const end = Math.min(pageCount, start + size - 1);
+                segments.push({ start, end, label: `${start}-${end}`, indices: Array.from({ length: end - start + 1 }, (_, offset) => start - 1 + offset) });
+            }
+            return segments;
+        }
+
+        function updateSplitStudioUI() {
+            const mode = getSplitMode();
+            const rangeInput = document.getElementById('split-ranges');
+            const chunkInput = document.getElementById('split-chunk-size');
+            if (!rangeInput || !chunkInput) return;
+            rangeInput.disabled = mode !== 'ranges';
+            chunkInput.disabled = mode !== 'chunks';
+            const validation = document.getElementById('split-validation');
+            try {
+                const segments = buildSplitSegments(mode, Math.max(1, pdfjsDoc?.numPages || 1));
+                validation.textContent = `${segments.length} PDF parçası ZIP içine hazırlanacak.`;
+                validation.className = 'min-h-[18px] text-[10px] text-emerald-400 font-mono pt-1';
+            } catch (error) {
+                validation.textContent = error.message;
+                validation.className = 'min-h-[18px] text-[10px] text-rose-400 font-mono pt-1';
+            }
+        }
+
+        async function prepareCurrentDocumentForSplit() {
+            if (pdfTextEditMode && !await finishPdfTextEditMode({ silent: true })) return false;
+            if (formDesignerActive) await toggleFormDesigner(false);
+            if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return false;
+            if (annotationModeActive) await toggleAnnotationMode(false);
+            if (annotationsDirty && !await commitAnnotationsToPdf({ silent: true })) return false;
+            if (isRedactionMode) await toggleRedactionMode();
+            return true;
+        }
+
+        async function splitCurrentDocument() {
+            if (splitStudioBusy || !currentPdfBytes || !pdfjsDoc) return;
+            if (typeof JSZip === 'undefined') { showToast('ZIP motoru yüklenemedi. İnternet bağlantısını kontrol edin.', 'bg-red-700'); return; }
+            let segments;
+            try { segments = buildSplitSegments(getSplitMode(), pdfjsDoc.numPages); }
+            catch (error) { updateSplitStudioUI(); showToast(error.message, 'bg-amber-600'); return; }
+            if (!await prepareCurrentDocumentForSplit()) return;
+
+            splitStudioBusy = true;
+            const button = document.getElementById('btn-split-download');
+            const validation = document.getElementById('split-validation');
+            const originalButton = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Hazırlanıyor…';
+            try {
+                const sourceDocument = await PDFLib.PDFDocument.load(currentPdfBytes.slice(0), { ignoreEncryption: false });
+                const zip = new JSZip();
+                const baseName = safePdfBaseName(document.getElementById('doc-title').innerText, 'Belge');
+                for (let index = 0; index < segments.length; index++) {
+                    const segment = segments[index];
+                    validation.textContent = `${index + 1}/${segments.length} parça oluşturuluyor…`;
+                    const outputDocument = await PDFLib.PDFDocument.create();
+                    const pages = await outputDocument.copyPages(sourceDocument, segment.indices);
+                    pages.forEach(page => outputDocument.addPage(page));
+                    outputDocument.setTitle(`${baseName} · Sayfa ${segment.start}-${segment.end}`);
+                    outputDocument.setProducer('KAYRA Belge');
+                    const bytes = await outputDocument.save({ useObjectStreams: true });
+                    const number = String(index + 1).padStart(3, '0');
+                    zip.file(`${baseName}_parca_${number}_sayfa_${segment.label}.pdf`, bytes);
+                    if (index % 3 === 2) await new Promise(requestAnimationFrame);
+                }
+                validation.textContent = 'ZIP dosyası sıkıştırılıyor…';
+                const zipBlob = await zip.generateAsync(
+                    { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/zip' },
+                    metadata => { validation.textContent = `ZIP sıkıştırılıyor: %${Math.round(metadata.percent)}`; }
+                );
+                downloadBlob(zipBlob, `${baseName}_bolunmus.zip`);
+                closeModal('modal-split-pdf');
+                showToast(`${segments.length} PDF parçası ZIP olarak indirildi.`, 'bg-emerald-600', 'fa-solid fa-file-zipper');
+            } catch (error) {
+                console.error('PDF bölme başarısız:', error);
+                validation.textContent = `Hata: ${String(error.message || error).slice(0, 100)}`;
+                validation.className = 'min-h-[18px] text-[10px] text-rose-400 font-mono pt-1';
+                showToast('PDF bölme işlemi tamamlanamadı.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+            } finally {
+                splitStudioBusy = false;
+                button.disabled = false;
+                button.innerHTML = originalButton;
+            }
+        }
+
+        mergeFileInput?.addEventListener('change', () => addFilesToMergeStudio(mergeFileInput.files));
+        const mergeDropZone = document.getElementById('merge-drop-zone');
+        ['dragenter', 'dragover'].forEach(eventName => mergeDropZone?.addEventListener(eventName, event => {
+            event.preventDefault(); mergeDropZone.classList.add('border-violet-300', 'bg-violet-500/15');
+        }));
+        ['dragleave', 'drop'].forEach(eventName => mergeDropZone?.addEventListener(eventName, event => {
+            event.preventDefault(); mergeDropZone.classList.remove('border-violet-300', 'bg-violet-500/15');
+        }));
+        mergeDropZone?.addEventListener('drop', event => addFilesToMergeStudio(event.dataTransfer.files));
+        document.getElementById('split-ranges')?.addEventListener('input', updateSplitStudioUI);
+        document.getElementById('split-chunk-size')?.addEventListener('input', updateSplitStudioUI);
+
+        // =========================================================================
+        // PDF FORMLARI: hazır alan algılama, canlı doldurma ve form tasarımcısı
+        // =========================================================================
+        function getAcroFieldType(field) {
+            const name = field?.constructor?.name || '';
+            if (name.includes('TextField') || typeof field?.getText === 'function') return 'text';
+            if (name.includes('CheckBox') || (typeof field?.check === 'function' && typeof field?.isChecked === 'function')) return 'checkbox';
+            if (name.includes('RadioGroup') || typeof field?.getSelected === 'function' && typeof field?.addOptionToPage === 'function') return 'radio';
+            if (name.includes('Dropdown') || name.includes('OptionList') || typeof field?.getOptions === 'function') return 'dropdown';
+            return 'unsupported';
+        }
+
+        function getPdfRefKey(reference) {
+            if (!reference) return '';
+            if (Number.isFinite(reference.objectNumber)) return `${reference.objectNumber}:${reference.generationNumber || 0}`;
+            try { return reference.toString(); } catch (error) { return ''; }
+        }
+
+        function findWidgetPageNumber(documentHandle, widget) {
+            const pages = documentHandle.getPages();
+            try {
+                const widgetPageRef = typeof widget.P === 'function' ? widget.P() : null;
+                const key = getPdfRefKey(widgetPageRef);
+                if (key) {
+                    const index = pages.findIndex(page => getPdfRefKey(page.ref) === key);
+                    if (index >= 0) return index + 1;
+                }
+            } catch (error) {}
+            try {
+                const widgetDictionary = widget.dict;
+                for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+                    const annots = typeof pages[pageIndex].node.Annots === 'function' ? pages[pageIndex].node.Annots() : null;
+                    if (!annots) continue;
+                    for (let annotationIndex = 0; annotationIndex < annots.size(); annotationIndex++) {
+                        const candidate = documentHandle.context.lookup(annots.get(annotationIndex));
+                        if (candidate === widgetDictionary) return pageIndex + 1;
+                    }
+                }
+            } catch (error) {}
+            return 1;
+        }
+
+        function readAcroFieldValue(field, type) {
+            try {
+                if (type === 'text') return field.getText() || '';
+                if (type === 'checkbox') return Boolean(field.isChecked());
+                if (type === 'dropdown') {
+                    const selected = field.getSelected();
+                    return Array.isArray(selected) ? selected.slice() : (selected ? [selected] : []);
+                }
+                if (type === 'radio') return field.getSelected() || '';
+            } catch (error) {}
+            return type === 'checkbox' ? false : type === 'dropdown' ? [] : '';
+        }
+
+        async function detectAcroFormFields() {
+            acroFormFields = [];
+            if (!pdfLibDoc) return;
+            try {
+                const form = pdfLibDoc.getForm();
+                const fields = form.getFields();
+                fields.forEach((field, fieldIndex) => {
+                    const type = getAcroFieldType(field);
+                    if (type === 'unsupported') return;
+                    const fieldName = field.getName();
+                    const value = readAcroFieldValue(field, type);
+                    let options = [];
+                    try { options = typeof field.getOptions === 'function' ? field.getOptions().slice() : []; } catch (error) {}
+                    let widgets = [];
+                    try { widgets = field.acroField.getWidgets(); } catch (error) {}
+                    if (!widgets.length) return;
+                    widgets.forEach((widget, widgetIndex) => {
+                        let rectangle = null;
+                        try { rectangle = widget.getRectangle(); } catch (error) {}
+                        if (!rectangle || !Number.isFinite(rectangle.x) || !Number.isFinite(rectangle.y)) return;
+                        let exportValue = '';
+                        try {
+                            const onValue = typeof widget.getOnValue === 'function' ? widget.getOnValue() : null;
+                            exportValue = onValue && typeof onValue.decodeText === 'function'
+                                ? onValue.decodeText()
+                                : onValue && typeof onValue.asString === 'function'
+                                    ? onValue.asString().replace(/^\//, '')
+                                    : String(onValue || '').replace(/^\//, '');
+                        } catch (error) {}
+                        if (type === 'radio' && options[widgetIndex] != null) exportValue = options[widgetIndex];
+                        acroFormFields.push({
+                            id: `acro-${fieldIndex}-${widgetIndex}-${fieldName}`,
+                            fieldName, type, pageNumber: findWidgetPageNumber(pdfLibDoc, widget),
+                            x: rectangle.x, y: rectangle.y, width: rectangle.width, height: rectangle.height,
+                            value: Array.isArray(value) ? value.slice() : value,
+                            options: options.slice(), exportValue,
+                            readOnly: typeof field.isReadOnly === 'function' ? field.isReadOnly() : false,
+                            existing: true
+                        });
+                    });
+                });
+            } catch (error) {
+                console.warn('AcroForm alanları okunamadı:', error);
+                acroFormFields = [];
+            }
+        }
+
+        function pdfRectangleToNormalized(pageNumber, rectangle) {
+            const viewport = pageViewportMap.get(pageNumber);
+            if (!viewport || !rectangle) return null;
+            const converted = viewport.convertToViewportRectangle([
+                rectangle.x, rectangle.y,
+                rectangle.x + rectangle.width, rectangle.y + rectangle.height
+            ]);
+            const left = Math.min(converted[0], converted[2]);
+            const top = Math.min(converted[1], converted[3]);
+            const right = Math.max(converted[0], converted[2]);
+            const bottom = Math.max(converted[1], converted[3]);
+            return {
+                normX: left / viewport.width, normY: top / viewport.height,
+                normW: (right - left) / viewport.width, normH: (bottom - top) / viewport.height
+            };
+        }
+
+        function normalizedFormBoxToPdf(pageNumber, box) {
+            const viewport = pageViewportMap.get(pageNumber);
+            if (!viewport) throw new Error(`Sayfa ${pageNumber} viewport bilgisi bulunamadı.`);
+            const first = viewport.convertToPdfPoint(box.normX * viewport.width, box.normY * viewport.height);
+            const second = viewport.convertToPdfPoint((box.normX + box.normW) * viewport.width, (box.normY + box.normH) * viewport.height);
+            return {
+                x: Math.min(first[0], second[0]), y: Math.min(first[1], second[1]),
+                width: Math.max(2, Math.abs(second[0] - first[0])),
+                height: Math.max(2, Math.abs(second[1] - first[1]))
+            };
+        }
+
+        function updateAcroFieldLocalValue(fieldName, type, value, exportValue = '') {
+            if (suppressFormValueEvents) return;
+            acroFormFields.forEach(item => {
+                if (item.fieldName !== fieldName) return;
+                if (type === 'radio') item.value = value;
+                else if (type === 'checkbox' && exportValue && item.exportValue && item.exportValue !== exportValue) return;
+                else item.value = Array.isArray(value) ? value.slice() : value;
+            });
+            formsDirty = true;
+            triggerAutoSave();
+            refreshLayersList();
+        }
+
+        function createExistingAcroWidget(field, normalized) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'acroform-widget';
+            wrapper.dataset.acroFieldId = field.id;
+            wrapper.style.left = `${normalized.normX * 100}%`;
+            wrapper.style.top = `${normalized.normY * 100}%`;
+            wrapper.style.width = `${normalized.normW * 100}%`;
+            wrapper.style.height = `${normalized.normH * 100}%`;
+            wrapper.title = field.fieldName;
+            const fontSize = Math.max(8, Math.min(20, normalized.normH * (getPageCanvas(field.pageNumber)?.offsetHeight || 800) * 0.68));
+
+            if (field.type === 'text') {
+                const input = document.createElement('input');
+                input.type = 'text'; input.value = String(field.value || ''); input.disabled = field.readOnly;
+                input.style.fontSize = `${fontSize}px`;
+                input.setAttribute('aria-label', field.fieldName);
+                input.addEventListener('input', () => updateAcroFieldLocalValue(field.fieldName, 'text', input.value));
+                wrapper.appendChild(input);
+            } else if (field.type === 'checkbox') {
+                const input = document.createElement('input');
+                input.type = 'checkbox'; input.className = 'acroform-checkbox'; input.checked = Boolean(field.value); input.disabled = field.readOnly;
+                input.setAttribute('aria-label', field.fieldName);
+                input.addEventListener('change', () => updateAcroFieldLocalValue(field.fieldName, 'checkbox', input.checked, field.exportValue));
+                wrapper.appendChild(input);
+            } else if (field.type === 'radio') {
+                const input = document.createElement('input');
+                input.type = 'radio'; input.className = 'acroform-radio'; input.name = `acro-${field.fieldName}`;
+                input.value = field.exportValue || `Option_${field.id}`; input.checked = field.value === input.value; input.disabled = field.readOnly;
+                input.setAttribute('aria-label', `${field.fieldName}: ${input.value}`);
+                input.addEventListener('change', () => { if (input.checked) updateAcroFieldLocalValue(field.fieldName, 'radio', input.value); });
+                wrapper.appendChild(input);
+            } else if (field.type === 'dropdown') {
+                const select = document.createElement('select');
+                select.disabled = field.readOnly; select.style.fontSize = `${fontSize}px`;
+                const selectedValues = Array.isArray(field.value) ? field.value : [field.value];
+                field.options.forEach(option => {
+                    const element = document.createElement('option');
+                    element.value = option; element.textContent = option; element.selected = selectedValues.includes(option);
+                    select.appendChild(element);
+                });
+                select.setAttribute('aria-label', field.fieldName);
+                select.addEventListener('change', () => updateAcroFieldLocalValue(field.fieldName, 'dropdown', [select.value]));
+                wrapper.appendChild(select);
+            }
+            return wrapper;
+        }
+
+        function createDesignerAcroWidget(field) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `acroform-widget acroform-designer-widget${selectedDesignerFieldId === field.id ? ' selected' : ''}`;
+            wrapper.dataset.designerFieldId = field.id;
+            wrapper.style.left = `${field.normX * 100}%`;
+            wrapper.style.top = `${field.normY * 100}%`;
+            wrapper.style.width = `${field.normW * 100}%`;
+            wrapper.style.height = `${field.normH * 100}%`;
+            wrapper.title = `${field.fieldName} (${field.type})`;
+
+            let control;
+            if (field.type === 'text') {
+                control = document.createElement('input'); control.type = 'text'; control.value = field.value || '';
+                control.addEventListener('input', () => { field.value = control.value; formsDirty = true; });
+            } else {
+                control = document.createElement('input'); control.type = field.type === 'radio' ? 'radio' : 'checkbox';
+                control.className = field.type === 'radio' ? 'acroform-radio' : 'acroform-checkbox';
+                if (field.type === 'radio') control.name = `designer-${field.fieldName}`;
+                control.checked = Boolean(field.checked);
+                control.addEventListener('change', () => {
+                    if (field.type === 'radio' && control.checked) designerFormFields.filter(item => item.type === 'radio' && item.fieldName === field.fieldName).forEach(item => { item.checked = item.id === field.id; });
+                    else field.checked = control.checked;
+                    formsDirty = true; renderAllAcroFormLayers();
+                });
+            }
+            control.setAttribute('aria-label', field.fieldName);
+            wrapper.appendChild(control);
+
+            if (formDesignerActive) {
+                const drag = document.createElement('button');
+                drag.type = 'button'; drag.className = 'acroform-drag-handle'; drag.innerHTML = '<i class="fa-solid fa-grip-lines"></i>';
+                drag.title = 'Taşı'; drag.addEventListener('pointerdown', event => beginFormPointerAction(event, field.id, 'move'));
+                const resize = document.createElement('button');
+                resize.type = 'button'; resize.className = 'acroform-resize-handle'; resize.title = 'Boyutlandır';
+                resize.addEventListener('pointerdown', event => beginFormPointerAction(event, field.id, 'resize'));
+                const remove = document.createElement('button');
+                remove.type = 'button'; remove.className = 'acroform-delete-handle'; remove.innerHTML = '<i class="fa-solid fa-xmark"></i>'; remove.title = 'Alanı sil';
+                remove.addEventListener('click', event => { event.stopPropagation(); deleteDesignerFormField(field.id); });
+                wrapper.append(drag, resize, remove);
+                wrapper.addEventListener('pointerdown', () => {
+                    selectedDesignerFieldId = field.id;
+                    formFieldNameInput.value = field.fieldName;
+                    pageFlow.querySelectorAll('.acroform-designer-widget.selected').forEach(element => element.classList.remove('selected'));
+                    wrapper.classList.add('selected');
+                });
+            }
+            return wrapper;
+        }
+
+        function ensureAcroFormLayer(pageNumber) {
+            const container = getPageContainer(pageNumber);
+            const canvas = getPageCanvas(pageNumber);
+            if (!container || !canvas) return null;
+            let layer = container.querySelector('.acroform-layer');
+            if (!layer) {
+                layer = document.createElement('div');
+                layer.className = 'acroform-layer';
+                layer.dataset.pageNumber = String(pageNumber);
+                layer.addEventListener('pointerdown', event => {
+                    if (!formDesignerActive || !['text', 'checkbox', 'radio'].includes(formDesignerTool) || event.target !== layer) return;
+                    event.preventDefault();
+                    const rect = layer.getBoundingClientRect();
+                    addDesignerFormField(Number(layer.dataset.pageNumber), (event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+                });
+                container.appendChild(layer);
+            }
+            layer.style.width = canvas.style.width;
+            layer.style.height = canvas.style.height;
+            layer.classList.toggle('form-placement-active', formDesignerActive && ['text', 'checkbox', 'radio'].includes(formDesignerTool));
+            return layer;
+        }
+
+        function renderAcroFormLayer(pageNumber) {
+            const hasFields = acroFormFields.some(field => field.pageNumber === pageNumber) || designerFormFields.some(field => field.pageNumber === pageNumber);
+            const container = getPageContainer(pageNumber);
+            if (!container) return;
+            let layer = container.querySelector('.acroform-layer');
+            if (!hasFields && !formDesignerActive) { if (layer) layer.remove(); return; }
+            layer = ensureAcroFormLayer(pageNumber);
+            if (!layer) return;
+            layer.innerHTML = '';
+            suppressFormValueEvents = true;
+            acroFormFields.filter(field => field.pageNumber === pageNumber).forEach(field => {
+                const normalized = pdfRectangleToNormalized(pageNumber, field);
+                if (normalized) layer.appendChild(createExistingAcroWidget(field, normalized));
+            });
+            designerFormFields.filter(field => field.pageNumber === pageNumber).forEach(field => layer.appendChild(createDesignerAcroWidget(field)));
+            suppressFormValueEvents = false;
+            layer.classList.toggle('form-placement-active', formDesignerActive && ['text', 'checkbox', 'radio'].includes(formDesignerTool));
+        }
+
+        function renderAllAcroFormLayers() {
+            formRenderGeneration++;
+            const pages = new Set([...acroFormFields, ...designerFormFields].map(field => field.pageNumber));
+            if (formDesignerActive) pages.add(currentPageNum);
+            pageFlow.querySelectorAll('.acroform-layer').forEach(layer => {
+                if (!pages.has(Number(layer.dataset.pageNumber))) layer.remove();
+            });
+            pages.forEach(pageNumber => renderAcroFormLayer(pageNumber));
+            syncSelectableTextLayers();
+        }
+
+        function makeUniqueFormFieldName(proposed, type, fields = [...acroFormFields, ...designerFormFields]) {
+            const clean = String(proposed || '').trim().replace(/[^\p{L}\p{N}_.-]+/gu, '_') || `Alan_${++formFieldSequence}`;
+            if (type === 'radio') return clean;
+            const used = new Set(fields.map(field => field.fieldName));
+            if (!used.has(clean)) return clean;
+            let suffix = 2;
+            while (used.has(`${clean}_${suffix}`)) suffix++;
+            return `${clean}_${suffix}`;
+        }
+
+        function addDesignerFormField(pageNumber, normX, normY) {
+            const type = formDesignerTool;
+            const isCompact = type !== 'text';
+            const normW = isCompact ? 0.032 : 0.25;
+            const normH = isCompact ? 0.032 : 0.042;
+            const proposedName = formFieldNameInput.value || `Alan_${formFieldSequence + 1}`;
+            const fieldName = makeUniqueFormFieldName(proposedName, type);
+            const sameRadioCount = designerFormFields.filter(field => field.type === 'radio' && field.fieldName === fieldName).length;
+            const field = {
+                id: `designer-form-${Date.now()}-${++formFieldSequence}`,
+                fieldName, type, pageNumber,
+                normX: Math.max(0, Math.min(1 - normW, normX)),
+                normY: Math.max(0, Math.min(1 - normH, normY)),
+                normW, normH, value: '', checked: false,
+                exportValue: type === 'radio' ? `Secenek_${sameRadioCount + 1}` : 'Yes'
+            };
+            designerFormFields.push(field);
+            selectedDesignerFieldId = field.id;
+            formsDirty = true;
+            formFieldNameInput.value = type === 'radio' ? fieldName : `Alan_${formFieldSequence + 1}`;
+            renderAcroFormLayer(pageNumber);
+            refreshLayersList();
+            showToast(`${type === 'text' ? 'Metin' : type === 'checkbox' ? 'Onay' : 'Radyo'} alanı eklendi.`, 'bg-cyan-700', 'fa-regular fa-rectangle-list');
+        }
+
+        function deleteDesignerFormField(id) {
+            const field = designerFormFields.find(item => item.id === id);
+            if (!field) return;
+            designerFormFields = designerFormFields.filter(item => item.id !== id);
+            selectedDesignerFieldId = null;
+            formsDirty = true;
+            renderAcroFormLayer(field.pageNumber);
+            refreshLayersList();
+        }
+
+        function beginFormPointerAction(event, fieldId, mode) {
+            const field = designerFormFields.find(item => item.id === fieldId);
+            const layer = event.currentTarget.closest('.acroform-layer');
+            if (!field || !layer) return;
+            event.preventDefault(); event.stopPropagation();
+            selectedDesignerFieldId = fieldId;
+            activeFormPointerAction = {
+                fieldId, mode, pointerId: event.pointerId,
+                startX: event.clientX, startY: event.clientY,
+                startNormX: field.normX, startNormY: field.normY,
+                startNormW: field.normW, startNormH: field.normH,
+                width: Math.max(1, layer.clientWidth), height: Math.max(1, layer.clientHeight)
+            };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+        }
+
+        window.addEventListener('pointermove', event => {
+            if (!activeFormPointerAction || event.pointerId !== activeFormPointerAction.pointerId) return;
+            const action = activeFormPointerAction;
+            const field = designerFormFields.find(item => item.id === action.fieldId);
+            if (!field) return;
+            const dx = (event.clientX - action.startX) / action.width;
+            const dy = (event.clientY - action.startY) / action.height;
+            if (action.mode === 'move') {
+                field.normX = Math.max(0, Math.min(1 - field.normW, action.startNormX + dx));
+                field.normY = Math.max(0, Math.min(1 - field.normH, action.startNormY + dy));
+            } else {
+                field.normW = Math.max(0.018, Math.min(1 - field.normX, action.startNormW + dx));
+                field.normH = Math.max(0.018, Math.min(1 - field.normY, action.startNormH + dy));
+            }
+            formsDirty = true;
+            renderAcroFormLayer(field.pageNumber);
+        });
+        window.addEventListener('pointerup', event => {
+            if (activeFormPointerAction && event.pointerId === activeFormPointerAction.pointerId) {
+                activeFormPointerAction = null;
+                refreshLayersList();
+            }
+        });
+
+        function setFormDesignerTool(tool) {
+            formDesignerTool = ['select', 'text', 'checkbox', 'radio'].includes(tool) ? tool : 'select';
+            ['select', 'text', 'checkbox', 'radio'].forEach(name => {
+                const button = document.getElementById(`form-tool-${name}`);
+                if (!button) return;
+                const active = name === formDesignerTool;
+                button.classList.toggle('bg-cyan-600', active);
+                button.classList.toggle('text-white', active);
+                button.classList.toggle('border-cyan-400/50', active);
+                button.classList.toggle('bg-kayra-surface', !active);
+            });
+            belgeWorkspace.classList.toggle('form-placement-active', formDesignerActive && formDesignerTool !== 'select');
+            renderAllAcroFormLayers();
+        }
+
+        async function toggleFormDesigner(force) {
+            if (!pdfLibDoc || !pdfjsDoc) { showToast('Önce bir PDF belgesi açın.', 'bg-amber-600'); return; }
+            const next = typeof force === 'boolean' ? force : !formDesignerActive;
+            if (next) {
+                if (annotationModeActive) await toggleAnnotationMode(false);
+                if (isRedactionMode) await toggleRedactionMode();
+                if (pdfTextEditMode) {
+                    const completed = await finishPdfTextEditMode({ silent: true });
+                    if (!completed) return;
+                }
+            }
+            formDesignerActive = next;
+            formToolbar.classList.toggle('hidden', !next);
+            formToolbar.classList.toggle('flex', next);
+            if (!next) { formDesignerTool = 'select'; selectedDesignerFieldId = null; }
+            setFormDesignerTool(formDesignerTool);
+            renderAllAcroFormLayers();
+            if (next) showToast('Form tasarımcısı açık. Hazır alanlar doğrudan doldurulabilir.', 'bg-cyan-700', 'fa-regular fa-rectangle-list');
+        }
+
+        function setPdfFormFieldValue(form, fieldName, type, value) {
+            try {
+                const field = form.getField(fieldName);
+                if (type === 'text') field.setText(String(value || ''));
+                else if (type === 'checkbox') {
+                    if (value) field.check(); else field.uncheck();
+                } else if (type === 'dropdown') {
+                    const selected = Array.isArray(value) ? value : [value];
+                    if (selected[0]) field.select(selected[0]);
+                } else if (type === 'radio' && value) field.select(String(value));
+            } catch (error) {
+                console.warn(`Form alanı güncellenemedi: ${fieldName}`, error);
+            }
+        }
+
+        async function applyAcroFormStateToDocument(documentHandle, options = {}) {
+            const form = documentHandle.getForm();
+            const handled = new Set();
+            acroFormFields.forEach(field => {
+                const key = `${field.type}:${field.fieldName}`;
+                if (handled.has(key)) return;
+                handled.add(key);
+                setPdfFormFieldValue(form, field.fieldName, field.type, field.value);
+            });
+
+            const radioGroups = new Map();
+            designerFormFields.forEach(field => {
+                if (field.type === 'radio') {
+                    if (!radioGroups.has(field.fieldName)) radioGroups.set(field.fieldName, []);
+                    radioGroups.get(field.fieldName).push(field);
+                    return;
+                }
+                const page = documentHandle.getPage(field.pageNumber - 1);
+                const rect = normalizedFormBoxToPdf(field.pageNumber, field);
+                if (field.type === 'text') {
+                    const pdfField = form.createTextField(field.fieldName);
+                    pdfField.addToPage(page, { ...rect, borderWidth: 1, borderColor: PDFLib.rgb(0.145, 0.388, 0.922), backgroundColor: PDFLib.rgb(1, 1, 1), textColor: PDFLib.rgb(0, 0, 0) });
+                    if (field.value) pdfField.setText(field.value);
+                } else if (field.type === 'checkbox') {
+                    const pdfField = form.createCheckBox(field.fieldName);
+                    pdfField.addToPage(page, { ...rect, borderWidth: 1, borderColor: PDFLib.rgb(0.145, 0.388, 0.922), backgroundColor: PDFLib.rgb(1, 1, 1) });
+                    if (field.checked) pdfField.check();
+                }
+            });
+            radioGroups.forEach((fields, fieldName) => {
+                let group;
+                try { group = form.getRadioGroup(fieldName); }
+                catch (error) { group = form.createRadioGroup(fieldName); }
+                fields.forEach((field, index) => {
+                    const page = documentHandle.getPage(field.pageNumber - 1);
+                    const rect = normalizedFormBoxToPdf(field.pageNumber, field);
+                    const option = field.exportValue || `Secenek_${index + 1}`;
+                    group.addOptionToPage(option, page, { ...rect, borderWidth: 1, borderColor: PDFLib.rgb(0.486, 0.227, 0.929), backgroundColor: PDFLib.rgb(1, 1, 1) });
+                    if (field.checked) group.select(option);
+                });
+            });
+
+            try {
+                const embeddedFont = await getPdfEditEmbeddedFont(documentHandle, {
+                    category: 'sans', variant: 'regular', weight: 400, style: 'normal',
+                    standardFont: PDFLib.StandardFonts.Helvetica
+                });
+                form.updateFieldAppearances(embeddedFont);
+            } catch (error) {
+                console.warn('Türkçe form görünümü özel fontla yenilenemedi; standart görünüm deneniyor:', error);
+                try { form.updateFieldAppearances(); } catch (appearanceError) {}
+            }
+            if (options.flatten) form.flatten();
+            return form;
+        }
+
+        async function commitAcroFormChanges(options = {}) {
+            if (!pdfLibDoc || !currentPdfBytes) return false;
+            if (!formsDirty && !designerFormFields.length) {
+                if (!options.silent) showToast('Form alanlarında kaydedilecek değişiklik yok.', 'bg-emerald-600');
+                return true;
+            }
+            try {
+                if (!options.silent) showToast('Form alanları PDF çekirdeğine işleniyor…', 'bg-cyan-700', 'fa-solid fa-spinner fa-spin');
+                const workingDocument = await PDFLib.PDFDocument.load(currentPdfBytes.slice(0));
+                await applyAcroFormStateToDocument(workingDocument);
+                const bytes = await workingDocument.save({ useObjectStreams: true });
+                currentPdfBytes = new Uint8Array(bytes);
+                pdfLibDoc = workingDocument;
+                designerFormFields = [];
+                formsDirty = false;
+                selectedDesignerFieldId = null;
+                saveStateToHistory(currentPdfBytes);
+                await loadPdfState();
+                syncActiveDocumentTabState();
+                if (!options.silent) showToast('Form alanları düzenlenebilir PDF formu olarak kaydedildi.', 'bg-emerald-600', 'fa-solid fa-check');
+                return true;
+            } catch (error) {
+                console.error('AcroForm kaydı başarısız:', error);
+                showToast(`Form kaydedilemedi: ${String(error.message || error).slice(0, 100)}`, 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+                return false;
+            }
+        }
+
+        async function downloadAcroFormPdf(flatten = false) {
+            if (!pdfLibDoc || !currentPdfBytes) return;
+            try {
+                if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return;
+                if (annotationsDirty) {
+                    const annotationSaved = await commitAnnotationsToPdf({ silent: true });
+                    if (!annotationSaved) return;
+                }
+                const outputDocument = await PDFLib.PDFDocument.load(currentPdfBytes.slice(0));
+                await applyAcroFormStateToDocument(outputDocument, { flatten });
+                const bytes = await outputDocument.save({ useObjectStreams: true });
+                const baseName = document.getElementById('doc-title').innerText.replace(/\.pdf$/i, '');
+                downloadBlob(new Blob([bytes], { type: 'application/pdf' }), `${baseName}_${flatten ? 'dondurulmus-form' : 'duzenlenebilir-form'}.pdf`);
+                showToast(flatten ? 'Form alanları dondurularak indirildi.' : 'Düzenlenebilir PDF formu indirildi.', 'bg-emerald-600', 'fa-solid fa-download');
+            } catch (error) {
+                console.error('Form PDF dışa aktarılamadı:', error);
+                showToast('Form PDF dışa aktarılamadı.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+            }
+        }
+
+        formFieldNameInput?.addEventListener('change', () => {
+            const field = designerFormFields.find(item => item.id === selectedDesignerFieldId);
+            if (!field) return;
+            const requested = String(formFieldNameInput.value || '').trim();
+            if (!requested) { formFieldNameInput.value = field.fieldName; return; }
+            field.fieldName = makeUniqueFormFieldName(requested, field.type, [...acroFormFields, ...designerFormFields.filter(item => item.id !== field.id)]);
+            formFieldNameInput.value = field.fieldName;
+            formsDirty = true;
+            renderAllAcroFormLayers();
+            refreshLayersList();
+        });
 
         function switchSidebarTab(tabName) {
             const tabs = ['pages', 'layers', 'tools'];
@@ -2979,6 +4049,23 @@
                         <button onclick="toggleImageBoxLock()" class="text-gray-400 hover:text-rose-400 cursor-pointer text-xs"><i class="fa-solid ${imageState.isLocked ? 'fa-lock text-rose-400' : 'fa-lock-open'}"></i></button>
                     </div>`;
             }
+            const formLayerItems = [
+                ...acroFormFields.map(field => ({ ...field, designer: false })),
+                ...designerFormFields.map(field => ({ ...field, designer: true }))
+            ].sort((a, b) => a.pageNumber - b.pageNumber || a.fieldName.localeCompare(b.fieldName));
+            formLayerItems.forEach(field => {
+                hasItems = true;
+                const icon = field.type === 'text' ? 'fa-i-cursor' : field.type === 'checkbox' ? 'fa-square-check' : field.type === 'radio' ? 'fa-circle-dot' : 'fa-list';
+                const label = field.type === 'text' ? 'Metin Alanı' : field.type === 'checkbox' ? 'Onay Kutusu' : field.type === 'radio' ? 'Radyo Seçeneği' : 'Açılır Liste';
+                container.innerHTML += `
+                    <div class="p-2.5 bg-kayra-surface border border-cyan-500/30 rounded-lg flex items-center justify-between gap-2">
+                        <button onclick="goToPage(${field.pageNumber}, true)" class="min-w-0 flex-1 flex items-center space-x-2 text-left cursor-pointer">
+                            <span class="w-7 h-7 rounded-md bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0"><i class="fa-solid ${icon}"></i></span>
+                            <span class="min-w-0"><span class="font-bold text-gray-200 block truncate">${escapeHtml(field.fieldName)}</span><span class="text-[10px] text-gray-500">Sayfa ${field.pageNumber} · ${label}${field.designer ? ' · Yeni' : ''}</span></span>
+                        </button>
+                        ${field.designer ? `<button onclick="deleteDesignerFormField('${field.id}')" class="w-6 h-6 rounded hover:bg-rose-600/25 text-gray-500 hover:text-rose-400 cursor-pointer" title="Alanı sil"><i class="fa-solid fa-trash text-[10px]"></i></button>` : ''}
+                    </div>`;
+            });
             documentAnnotations
                 .slice()
                 .sort((a, b) => a.pageNumber - b.pageNumber || String(a.id).localeCompare(String(b.id)))
@@ -3101,6 +4188,7 @@
                     if (!finished) return;
                 }
                 if (isRedactionMode) await toggleRedactionMode();
+                if (formDesignerActive) await toggleFormDesigner(false);
                 dismissInteractiveTextBox();
                 dismissInteractiveImageBox();
                 annotationModeActive = true;
@@ -3148,31 +4236,43 @@
         }
 
         function syncAnnotationInteractionMode() {
-            const textLayer = document.getElementById('pdf-text-layer');
-            const textSelection = annotationModeActive && ['highlight', 'strike', 'underline'].includes(annotationTool);
-            if (textLayer) textLayer.classList.toggle('annotation-text-select-active', textSelection);
             pageFlow.querySelectorAll('.annotation-layer').forEach(layer => {
                 layer.classList.toggle('annotation-interactive', annotationModeActive && ['note', 'pencil'].includes(annotationTool));
             });
+            syncSelectableTextLayers();
+        }
+
+        function getPdfSelectionContext(selection = window.getSelection()) {
+            if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+            const nodeLayer = node => {
+                const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+                return element?.closest?.('.pdf-page-text-layer') || null;
+            };
+            const anchorLayer = nodeLayer(selection.anchorNode);
+            const focusLayer = nodeLayer(selection.focusNode);
+            const layer = anchorLayer || focusLayer;
+            if (!layer) return null;
+            if (anchorLayer && focusLayer && anchorLayer !== focusLayer) return null;
+            const pageNumber = Number(layer.dataset.pageNumber);
+            const canvas = getPageCanvas(pageNumber);
+            if (!canvas) return null;
+            return { selection, layer, pageNumber, canvas, canvasRect: canvas.getBoundingClientRect() };
+        }
+
+        function captureCurrentPdfTextSelection() {
+            if (annotationModeActive && ['highlight', 'strike', 'underline'].includes(annotationTool)) return captureAnnotationTextSelection(true);
+            if (isRedactionMode && redactionSelectionMode === 'text') return captureRedactionTextSelection();
+            return false;
         }
 
         function captureAnnotationTextSelection(applyImmediately = false) {
             if (!annotationModeActive || !['highlight', 'strike', 'underline'].includes(annotationTool) || pdfTextEditMode || isRedactionMode) return false;
-            const selection = window.getSelection();
-            const textLayer = document.getElementById('pdf-text-layer');
-            const canvas = getPageCanvas(currentPageNum);
-            if (!selection || selection.isCollapsed || !selection.rangeCount || !textLayer || !canvas) return false;
-            if (!textLayer.contains(selection.anchorNode) && !textLayer.contains(selection.focusNode)) return false;
-            const canvasRect = canvas.getBoundingClientRect();
+            const context = getPdfSelectionContext();
+            if (!context) return false;
+            const { selection, pageNumber, canvasRect } = context;
             if (!canvasRect.width || !canvasRect.height) return false;
-            const rawRects = Array.from(selection.getRangeAt(0).getClientRects()).map(rect => ({
-                left: Math.max(rect.left, canvasRect.left),
-                top: Math.max(rect.top, canvasRect.top),
-                right: Math.min(rect.right, canvasRect.right),
-                bottom: Math.min(rect.bottom, canvasRect.bottom),
-                width: Math.max(0, Math.min(rect.right, canvasRect.right) - Math.max(rect.left, canvasRect.left)),
-                height: Math.max(0, Math.min(rect.bottom, canvasRect.bottom) - Math.max(rect.top, canvasRect.top))
-            })).filter(rect => rect.width > 0.5 && rect.height > 0.5);
+            const rawRects = getMeaningfulPdfSelectionClientRects(context)
+                .filter(rect => rect.width > 0.5 && rect.height > 0.5);
             const rects = mergeSelectionClientRects(rawRects).map(rect => ({
                 normX: (rect.left - canvasRect.left) / canvasRect.width,
                 normY: (rect.top - canvasRect.top) / canvasRect.height,
@@ -3180,7 +4280,7 @@
                 normH: rect.height / canvasRect.height
             }));
             if (!rects.length) return false;
-            pendingAnnotationSelection = { pageNumber: currentPageNum, rects, text: selection.toString() };
+            pendingAnnotationSelection = { pageNumber, rects, text: selection.toString() };
             if (applyImmediately) applyPendingTextAnnotation();
             return true;
         }
@@ -3441,9 +4541,6 @@
             neededPages.forEach(pageNumber => renderAnnotationLayer(pageNumber));
         }
 
-        document.getElementById('pdf-text-layer').addEventListener('mouseup', () => {
-            if (annotationModeActive && ['highlight', 'strike', 'underline'].includes(annotationTool)) requestAnimationFrame(() => captureAnnotationTextSelection(true));
-        });
         document.addEventListener('mouseup', event => {
             if (annotationModeActive && ['highlight', 'strike', 'underline'].includes(annotationTool) && !event.target.closest('#annotation-toolbar')) {
                 requestAnimationFrame(() => captureAnnotationTextSelection(true));
@@ -3581,6 +4678,7 @@
 
         async function commitAnnotationsToPdf(options = {}) {
             if (!pdfLibDoc || !pdfjsDoc) return false;
+            if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return false;
             flushOpenStickyNoteEditors();
             if (!annotationsDirty) {
                 if (!options.silent) showToast('Tüm yorumlar zaten PDF’e kaydedilmiş.', 'bg-emerald-600');
@@ -4112,6 +5210,18 @@
             return clone;
         }
 
+        function cloneAcroFormState(source = acroFormFields) {
+            return (source || []).map(field => ({
+                ...field,
+                value: Array.isArray(field.value) ? field.value.slice() : field.value,
+                options: Array.isArray(field.options) ? field.options.slice() : []
+            }));
+        }
+
+        function cloneDesignerFormState(source = designerFormFields) {
+            return (source || []).map(field => ({ ...field }));
+        }
+
         function captureTextLayerSnapshot() {
             if (!textState.active || interactiveTextBox.classList.contains('hidden')) return null;
             return {
@@ -4145,6 +5255,9 @@
             tab.deletedAnnotationIds = [...deletedAnnotationIds];
             tab.annotationHistory = annotationHistory.map(state => cloneAnnotations(state));
             tab.annotationHistoryIndex = annotationHistoryIndex;
+            tab.acroFormFields = cloneAcroFormState();
+            tab.designerFormFields = cloneDesignerFormState();
+            tab.formsDirty = formsDirty;
             tab.textLayerSnapshot = captureTextLayerSnapshot();
             tab.imageLayerSnapshot = captureImageLayerSnapshot();
         }
@@ -4253,6 +5366,7 @@
             if (isApplyingRedaction || pageOrganizerSaving) return false;
             if (pageOrganizerActive) closePageOrganizer(false);
             if (annotationModeActive) await toggleAnnotationMode(false);
+            if (formDesignerActive) await toggleFormDesigner(false);
             if (pdfTextEditCommitPromise) {
                 const committed = await pdfTextEditCommitPromise;
                 if (!committed) return false;
@@ -4294,6 +5408,19 @@
             zoomIndicator.innerText = `${Math.round(currentZoom * 100)}%`;
             resetPdfTextEditUI();
             await loadPdfState();
+            if (Array.isArray(tab.acroFormFields) && tab.acroFormFields.length) {
+                const savedValues = new Map(tab.acroFormFields.map(field => [`${field.type}:${field.fieldName}:${field.exportValue || ''}`, field.value]));
+                acroFormFields.forEach(field => {
+                    const key = `${field.type}:${field.fieldName}:${field.exportValue || ''}`;
+                    if (savedValues.has(key)) {
+                        const value = savedValues.get(key);
+                        field.value = Array.isArray(value) ? value.slice() : value;
+                    }
+                });
+            }
+            designerFormFields = cloneDesignerFormState(tab.designerFormFields || []);
+            formsDirty = Boolean(tab.formsDirty);
+            renderAllAcroFormLayers();
             await restoreDocumentTabLayers(tab);
             updateUndoRedoButtons();
             renderDocumentTabs();
@@ -4324,6 +5451,9 @@
                     deletedAnnotationIds: [],
                     annotationHistory: [[]],
                     annotationHistoryIndex: 0,
+                    acroFormFields: [],
+                    designerFormFields: [],
+                    formsDirty: false,
                     textLayerSnapshot: null,
                     imageLayerSnapshot: null
                 };
@@ -4527,13 +5657,14 @@
 
         async function saveDocument() {
             if (!pdfLibDoc) return;
+            if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) return;
             if (annotationsDirty) {
                 const saved = await commitAnnotationsToPdf({ silent: true });
                 if (!saved) return;
             }
             triggerAutoSave();
             syncActiveDocumentTabState();
-            showToast("Değişiklikler ve yorumlar PDF çekirdeğine kaydedildi.", "bg-emerald-600");
+            showToast("Değişiklikler, yorumlar ve formlar PDF çekirdeğine kaydedildi.", "bg-emerald-600");
         }
 
         function renameDocument() {
@@ -4614,6 +5745,7 @@
                 }
                 pageViewportMap.clear();
                 pageTextContentCache.clear();
+                await detectAcroFormFields();
 
                 emptyState.classList.add('hidden');
                 document.getElementById('no-pages-state').classList.add('hidden');
@@ -4629,6 +5761,7 @@
                 updatePageIndicator();
                 await renderMainPage();
                 await renderThumbnails();
+                renderAllAcroFormLayers();
                 updateThumbnailActiveState(true);
                 refreshLayersList();
             } catch (err) {
@@ -4652,6 +5785,130 @@
             pageTextContentCache.set(pageNumber, content);
             while (pageTextContentCache.size > 12) pageTextContentCache.delete(pageTextContentCache.keys().next().value);
             return content;
+        }
+
+        function syncSelectableTextLayers() {
+            const areaSelectionActive = isRedactionMode && redactionSelectionMode === 'area' && !pdfTextEditMode;
+            const annotationPointerTool = annotationModeActive && ['note', 'pencil'].includes(annotationTool);
+            const formPlacement = formDesignerActive && ['text', 'checkbox', 'radio'].includes(formDesignerTool);
+            const disabled = pdfTextEditMode || areaSelectionActive || annotationPointerTool || formPlacement || pageOrganizerActive;
+            pageFlow.querySelectorAll('.pdf-page-text-layer').forEach(layer => {
+                layer.classList.toggle('selection-disabled', disabled);
+                layer.classList.toggle('redaction-text-select-active', isRedactionMode && redactionSelectionMode === 'text' && !disabled);
+                layer.classList.toggle('annotation-text-select-active', annotationModeActive && ['highlight', 'strike', 'underline'].includes(annotationTool) && !disabled);
+            });
+            const legacyLayer = document.getElementById('pdf-text-layer');
+            if (legacyLayer) { legacyLayer.innerHTML = ''; legacyLayer.style.display = 'none'; legacyLayer.style.pointerEvents = 'none'; }
+        }
+
+        function stabilizePdfTextLayerSelection(layer) {
+            if (!layer) return;
+            const spans = Array.from(layer.querySelectorAll(':scope > span'));
+            spans.forEach(span => {
+                const text = (span.textContent || '').trim();
+                const whitespaceOnly = !text;
+                const decorativeOnly = text.length >= 3 && /^[\s_|¦·.•—–\-═─━]+$/u.test(text);
+                span.dataset.whitespaceOnly = whitespaceOnly ? 'true' : 'false';
+                span.dataset.decorativeOnly = decorativeOnly ? 'true' : 'false';
+                span.dataset.selectionSkip = whitespaceOnly || decorativeOnly ? 'true' : 'false';
+            });
+            const visualSpans = spans.filter(span => span.dataset.selectionSkip !== 'true').map((span, originalIndex) => {
+                const rect = span.getBoundingClientRect();
+                return { span, originalIndex, top: rect.top, left: rect.left, height: rect.height };
+            });
+            visualSpans.sort((a, b) => {
+                const rowTolerance = Math.max(2, Math.min(a.height || 8, b.height || 8) * 0.45);
+                if (Math.abs(a.top - b.top) <= rowTolerance) return (a.left - b.left) || (a.originalIndex - b.originalIndex);
+                return (a.top - b.top) || (a.left - b.left) || (a.originalIndex - b.originalIndex);
+            });
+            /* PDF içerik akışı görsel okuma sırasından farklı olabilir. DOM sırasını
+               görsel satır/sütun sırasına taşımak seçim sıçramalarını engeller. */
+            visualSpans.forEach((item, index) => {
+                item.span.dataset.visualOrder = String(index);
+                layer.appendChild(item.span);
+            });
+            spans.filter(span => span.dataset.selectionSkip === 'true').forEach(span => layer.appendChild(span));
+        }
+
+        function getMeaningfulPdfSelectionClientRects(context) {
+            const { selection, layer, canvasRect } = context;
+            const range = selection.getRangeAt(0);
+            const rawRects = Array.from(range.getClientRects()).filter(rect => rect.width > 0.5 && rect.height > 0.5);
+            const selectedSpanRects = Array.from(layer.querySelectorAll('span[data-selection-skip="false"]'))
+                .filter(span => {
+                    try { return range.intersectsNode(span); } catch (error) { return false; }
+                })
+                .map(span => span.getBoundingClientRect())
+                .filter(rect => rect.width > 0.5 && rect.height > 0.5);
+            const clipped = [];
+            rawRects.forEach(rangeRect => {
+                selectedSpanRects.forEach(spanRect => {
+                    const left = Math.max(rangeRect.left, spanRect.left, canvasRect.left);
+                    const top = Math.max(rangeRect.top, spanRect.top, canvasRect.top);
+                    const right = Math.min(rangeRect.right, spanRect.right, canvasRect.right);
+                    const bottom = Math.min(rangeRect.bottom, spanRect.bottom, canvasRect.bottom);
+                    if (right - left > 0.5 && bottom - top > 0.5) clipped.push({ left, top, right, bottom, width: right - left, height: bottom - top });
+                });
+            });
+            if (clipped.length) return clipped;
+            return rawRects.map(rect => ({
+                left: Math.max(rect.left, canvasRect.left), top: Math.max(rect.top, canvasRect.top),
+                right: Math.min(rect.right, canvasRect.right), bottom: Math.min(rect.bottom, canvasRect.bottom),
+                width: Math.max(0, Math.min(rect.right, canvasRect.right) - Math.max(rect.left, canvasRect.left)),
+                height: Math.max(0, Math.min(rect.bottom, canvasRect.bottom) - Math.max(rect.top, canvasRect.top))
+            }));
+        }
+
+        async function ensurePageTextLayer(pageNumber, generation = pageRenderGeneration) {
+            if (!pdfjsDoc || generation !== pageRenderGeneration) return null;
+            const container = getPageContainer(pageNumber);
+            const canvas = getPageCanvas(pageNumber);
+            if (!container || !canvas || !canvas.isConnected) return null;
+            let layer = container.querySelector('.pdf-page-text-layer');
+            const renderKey = `${generation}:${currentZoom}`;
+            if (layer && layer.dataset.renderKey === renderKey) return layer;
+            if (!layer) {
+                layer = document.createElement('div');
+                layer.className = 'pdf-page-text-layer';
+                layer.dataset.pageNumber = String(pageNumber);
+                layer.setAttribute('aria-label', `Sayfa ${pageNumber} seçilebilir metni`);
+                layer.addEventListener('mouseup', () => requestAnimationFrame(captureCurrentPdfTextSelection));
+                layer.addEventListener('touchend', () => requestAnimationFrame(captureCurrentPdfTextSelection), { passive: true });
+                container.appendChild(layer);
+            }
+            layer.innerHTML = '';
+            layer.style.width = canvas.style.width;
+            layer.style.height = canvas.style.height;
+            layer.style.setProperty('--scale-factor', String(currentZoom));
+            layer.dataset.renderKey = '';
+            try {
+                const page = await pdfjsDoc.getPage(pageNumber);
+                const textContent = await getPageTextContentCached(pageNumber, page);
+                if (generation !== pageRenderGeneration || !layer.isConnected) return null;
+                if (!textContent.items?.length) {
+                    layer.dataset.empty = 'true';
+                    layer.dataset.renderKey = renderKey;
+                    syncSelectableTextLayers();
+                    return layer;
+                }
+                const task = pdfjsLib.renderTextLayer({
+                    textContentSource: textContent,
+                    container: layer,
+                    viewport: page.getViewport({ scale: currentZoom })
+                });
+                if (task?.promise) await task.promise;
+                if (generation !== pageRenderGeneration || !layer.isConnected) return null;
+                stabilizePdfTextLayerSelection(layer);
+                layer.dataset.empty = 'false';
+                layer.dataset.renderKey = renderKey;
+                syncSelectableTextLayers();
+                return layer;
+            } catch (error) {
+                console.warn(`Sayfa ${pageNumber} metin katmanı oluşturulamadı:`, error);
+                layer.dataset.empty = 'true';
+                layer.dataset.renderKey = renderKey;
+                return layer;
+            }
         }
 
         function cancelPageRenders() {
@@ -4692,6 +5949,10 @@
                     canvas.width = 1;
                     canvas.height = 1;
                     canvas.dataset.rendered = 'false';
+                    container.querySelector('.pdf-page-text-layer')?.remove();
+                    if (!acroFormFields.some(field => field.pageNumber === pageNumber) && !designerFormFields.some(field => field.pageNumber === pageNumber)) {
+                        container.querySelector('.acroform-layer')?.remove();
+                    }
                     renderedPageNumbers.delete(pageNumber);
                     addPageLoadingIndicator(container);
                 });
@@ -4729,6 +5990,8 @@
                     renderedPageNumbers.add(pageNumber);
                     const loading = container.querySelector('.page-loading');
                     if (loading) loading.remove();
+                    await ensurePageTextLayer(pageNumber, generation);
+                    if (generation === pageRenderGeneration) renderAcroFormLayer(pageNumber);
                     evictFarPageCanvases(pageNumber);
                     return true;
                 } catch (error) {
@@ -4893,7 +6156,7 @@
             const token = ++activeOverlayRenderToken;
             const pageNumber = currentPageNum;
 
-            [redactionCanvas, document.getElementById('pdf-text-layer'), searchHighlightLayer,
+            [redactionCanvas, searchHighlightLayer,
              interactiveTextBox, interactiveImageBox].forEach(layer => {
                 if (layer && layer.parentElement !== container) container.appendChild(layer);
             });
@@ -4906,27 +6169,10 @@
             searchHighlightLayer.style.height = canvas.style.height;
             drawAllRedactions();
 
-            const textLayerDiv = document.getElementById('pdf-text-layer');
-            if (!textLayerDiv) return;
-            textLayerDiv.innerHTML = '';
-            textLayerDiv.style.width = canvas.style.width;
-            textLayerDiv.style.height = canvas.style.height;
-
-            if (pdfTextEditMode) {
-                syncRedactionInteractionMode();
-                return;
-            }
-
             try {
-                const page = await pdfjsDoc.getPage(pageNumber);
-                const textContent = await getPageTextContentCached(pageNumber, page);
                 if (token !== activeOverlayRenderToken || pageNumber !== currentPageNum) return;
-                const textTask = pdfjsLib.renderTextLayer({
-                    textContentSource: textContent,
-                    container: textLayerDiv,
-                    viewport: page.getViewport({ scale: currentZoom })
-                });
-                if (textTask && textTask.promise) await textTask.promise;
+                await ensurePageTextLayer(pageNumber);
+                renderAcroFormLayer(pageNumber);
                 syncRedactionInteractionMode();
             } catch (err) {
                 console.warn("TextLayer render warning:", err);
@@ -5062,6 +6308,7 @@
                 return;
             }
             if (annotationModeActive) await toggleAnnotationMode(false);
+            if (formDesignerActive) await toggleFormDesigner(false);
             if (!pdfjsDoc || !currentPdfBytes) {
                 showToast('Önce bir PDF belgesi açın.', 'bg-amber-600');
                 return;
@@ -5592,6 +6839,7 @@
                 return;
             }
             if (!isRedactionMode && annotationModeActive) await toggleAnnotationMode(false);
+            if (!isRedactionMode && formDesignerActive) await toggleFormDesigner(false);
             if (!isRedactionMode && pdfTextEditMode) {
                 const finished = await finishPdfTextEditMode({ silent: true });
                 if (!finished) return;
@@ -5628,16 +6876,11 @@
         }
 
         function syncRedactionInteractionMode() {
-            const textLayer = document.getElementById('pdf-text-layer');
-            const textSelectionActive = isRedactionMode && redactionSelectionMode === 'text' && !pdfTextEditMode;
             const areaSelectionActive = isRedactionMode && redactionSelectionMode === 'area' && !pdfTextEditMode;
 
             redactionCanvas.style.pointerEvents = areaSelectionActive ? 'auto' : 'none';
             redactionCanvas.style.cursor = areaSelectionActive ? 'crosshair' : 'default';
-            if (textLayer) {
-                textLayer.classList.toggle('redaction-text-select-active', textSelectionActive);
-                textLayer.style.pointerEvents = (pdfTextEditMode || areaSelectionActive) ? 'none' : 'auto';
-            }
+            syncSelectableTextLayers();
         }
 
         function mergeSelectionClientRects(rects) {
@@ -5702,29 +6945,15 @@
         }
 
         function captureRedactionTextSelection() {
-            if (!isRedactionMode || redactionSelectionMode !== 'text' || isApplyingRedaction || pdfTextEditMode) return;
-            const selection = window.getSelection();
-            const textLayer = document.getElementById('pdf-text-layer');
-            const canvas = getPageCanvas(currentPageNum);
-            if (!selection || selection.isCollapsed || !selection.rangeCount || !textLayer || !canvas) return;
-            const anchorInside = textLayer.contains(selection.anchorNode);
-            const focusInside = textLayer.contains(selection.focusNode);
-            if (!anchorInside && !focusInside) return;
-
-            const canvasRect = canvas.getBoundingClientRect();
-            const rawRects = Array.from(selection.getRangeAt(0).getClientRects())
-                .map(rect => ({
-                    left: Math.max(rect.left, canvasRect.left),
-                    top: Math.max(rect.top, canvasRect.top),
-                    right: Math.min(rect.right, canvasRect.right),
-                    bottom: Math.min(rect.bottom, canvasRect.bottom),
-                    width: Math.max(0, Math.min(rect.right, canvasRect.right) - Math.max(rect.left, canvasRect.left)),
-                    height: Math.max(0, Math.min(rect.bottom, canvasRect.bottom) - Math.max(rect.top, canvasRect.top))
-                }));
+            if (!isRedactionMode || redactionSelectionMode !== 'text' || isApplyingRedaction || pdfTextEditMode) return false;
+            const context = getPdfSelectionContext();
+            if (!context) return false;
+            const { selection, pageNumber, canvasRect } = context;
+            const rawRects = getMeaningfulPdfSelectionClientRects(context);
             const mergedRects = mergeSelectionClientRects(rawRects);
             let addedCount = 0;
             mergedRects.forEach(rect => {
-                if (addTextSelectionRedactionZone(currentPageNum, rect, canvasRect)) addedCount++;
+                if (addTextSelectionRedactionZone(pageNumber, rect, canvasRect)) addedCount++;
             });
             selection.removeAllRanges();
 
@@ -5733,14 +6962,9 @@
                 refreshLayersList();
                 showToast(`${addedCount} satır/bölüm sansür için işaretlendi.`, 'bg-emerald-600', 'fa-solid fa-shield-halved');
             }
+            return addedCount > 0;
         }
 
-        document.getElementById('pdf-text-layer').addEventListener('mouseup', () => {
-            requestAnimationFrame(captureRedactionTextSelection);
-        });
-        document.getElementById('pdf-text-layer').addEventListener('touchend', () => {
-            requestAnimationFrame(captureRedactionTextSelection);
-        }, { passive: true });
         /* Mouse metin katmanının dışında bırakılırsa da sağdan-sola ve uzun/çok satırlı
            seçim kaybolmadan yakalanır. */
         document.addEventListener('mouseup', () => {
@@ -5865,11 +7089,13 @@
             if (!Array.isArray(quad) || quad.length < 8) return false;
             const xs = [quad[0], quad[2], quad[4], quad[6]];
             const ys = [quad[1], quad[3], quad[5], quad[7]];
-            const qx0 = Math.min(...xs), qx1 = Math.max(...xs);
-            const qy0 = Math.min(...ys), qy1 = Math.max(...ys);
-            const epsilon = 0.05;
-            return Math.min(qx1, rect[2]) - Math.max(qx0, rect[0]) > epsilon &&
-                   Math.min(qy1, rect[3]) - Math.max(qy0, rect[1]) > epsilon;
+            const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+            const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+            const epsilon = 0.02;
+            /* Komşu glifin yalnızca kenarı kutuya değdiğinde sansürü başarısız
+               sayma; hedef glifin merkezi gerçekten alanın içinde olmalıdır. */
+            return centerX >= rect[0] + epsilon && centerX <= rect[2] - epsilon &&
+                   centerY >= rect[1] + epsilon && centerY <= rect[3] - epsilon;
         }
 
         function countTextGlyphsInRect(page, rect) {
@@ -5949,6 +7175,10 @@
                             if (rect[2] - rect[0] < 0.25 || rect[3] - rect[1] < 0.25) continue;
                             const annotation = page.createAnnotation('Redact');
                             annotation.setRect(rect);
+                            /* Redaction görünümünü de siyah tanımla. MuPDF sürümüne göre
+                               yalnızca desteklenen renk yöntemi çalıştırılır. */
+                            try { annotation.setInteriorColor([0, 0, 0]); } catch (colorError) {}
+                            try { annotation.setColor([0, 0, 0]); } catch (colorError) {}
                         }
                         page.applyRedactions(
                             true,
@@ -5977,7 +7207,8 @@
                 showToast(`${zoneCount} alan güvenli biçimde kalıcı sansürlendi.`, 'bg-emerald-600', 'fa-solid fa-shield-halved');
             } catch (err) {
                 console.error('Gerçek redaction uygulanamadı:', err);
-                showToast('Güvenli sansür uygulanamadı; dosya değiştirilmedi.', 'bg-red-700', 'fa-solid fa-triangle-exclamation');
+                const detail = String(err?.message || err || '').slice(0, 110);
+                showToast(`Sansür uygulanamadı${detail ? `: ${detail}` : ''}`, 'bg-red-700', 'fa-solid fa-triangle-exclamation');
             } finally {
                 if (outputBuffer) outputBuffer.destroy();
                 if (mupdfDocument) mupdfDocument.destroy();
@@ -5992,6 +7223,31 @@
 
         function clearRedactions() { redactionZones[currentPageNum] = []; drawAllRedactions(); refreshLayersList(); }
 
+        function inferPdfTextItemSeparator(previousItem, currentItem) {
+            if (!previousItem) return '';
+            if (previousItem.hasEOL) return '\n';
+            const previousValue = String(previousItem.str || '');
+            const currentValue = String(currentItem.str || '');
+            if (/\s$/u.test(previousValue) || /^\s/u.test(currentValue)) return '';
+
+            const previousTransform = Array.from(previousItem.transform || []);
+            const currentTransform = Array.from(currentItem.transform || []);
+            if (previousTransform.length < 6 || currentTransform.length < 6) return ' ';
+            const fontHeight = Math.max(
+                1,
+                Math.hypot(Number(previousTransform[2]) || 0, Number(previousTransform[3]) || 0),
+                Math.hypot(Number(currentTransform[2]) || 0, Number(currentTransform[3]) || 0)
+            );
+            const sameLine = Math.abs((Number(previousTransform[5]) || 0) - (Number(currentTransform[5]) || 0)) <= fontHeight * 0.38;
+            if (!sameLine) return '\n';
+
+            const previousX = Number(previousTransform[4]) || 0;
+            const currentX = Number(currentTransform[4]) || 0;
+            const previousWidth = Math.abs(Number(previousItem.width) || 0);
+            const gap = currentX - (previousX + previousWidth);
+            return gap <= Math.max(0.8, fontHeight * 0.18) ? '' : ' ';
+        }
+
         function buildPdfTextIndex(items) {
             let text = '';
             const charMap = [];
@@ -6000,9 +7256,9 @@
                 const value = String(item.str || '');
                 if (!value) return;
                 if (previousItem) {
-                    const separator = previousItem.hasEOL ? '\n' : ' ';
+                    const separator = inferPdfTextItemSeparator(previousItem, item);
                     text += separator;
-                    charMap.push(null);
+                    for (let separatorIndex = 0; separatorIndex < separator.length; separatorIndex++) charMap.push(null);
                 }
                 for (let charOffset = 0; charOffset < value.length; charOffset++) {
                     text += value[charOffset];
@@ -6022,6 +7278,51 @@
                 const start = match.index + Math.max(0, relativeOffset);
                 target.push({ start, end: start + matchedText.length, kind });
                 if (match[0].length === 0) regex.lastIndex++;
+            }
+        }
+
+        function foldSearchCharacter(character) {
+            return String(character || '')
+                .toLocaleLowerCase('tr-TR')
+                .normalize('NFD')
+                .replace(/\p{M}+/gu, '')
+                .replace(/ı/g, 'i')
+                .replace(/æ/g, 'ae')
+                .replace(/œ/g, 'oe');
+        }
+
+        function buildFoldedSearchIndex(text) {
+            let foldedText = '';
+            const startMap = [];
+            const endMap = [];
+            for (let index = 0; index < text.length;) {
+                const codePoint = text.codePointAt(index);
+                const character = String.fromCodePoint(codePoint);
+                const folded = foldSearchCharacter(character);
+                for (let foldedIndex = 0; foldedIndex < folded.length; foldedIndex++) {
+                    foldedText += folded[foldedIndex];
+                    startMap.push(index);
+                    endMap.push(index + character.length);
+                }
+                index += character.length;
+            }
+            return { foldedText, startMap, endMap };
+        }
+
+        function collectFoldedLiteralMatches(text, phrase, kind, target) {
+            const { foldedText, startMap, endMap } = buildFoldedSearchIndex(text);
+            const foldedPhrase = Array.from(String(phrase || '')).map(foldSearchCharacter).join('').trim();
+            if (foldedPhrase.length < 2) return;
+            const pattern = escapeRegex(foldedPhrase).replace(/\s+/g, '\\s+');
+            const regex = new RegExp(pattern, 'gu');
+            let match;
+            while ((match = regex.exec(foldedText)) !== null) {
+                const first = match.index;
+                const last = match.index + match[0].length - 1;
+                const start = startMap[first];
+                const end = endMap[last];
+                if (Number.isInteger(start) && Number.isInteger(end) && end > start) target.push({ start, end, kind });
+                if (!match[0].length) regex.lastIndex++;
             }
         }
 
@@ -6167,8 +7468,7 @@
                 if (scanTel) collectRegexMatches(text, /(?:^|[^\d])(((?:(?:\+?90|0)[ \t.()\/-]*)?5\d{2}(?:[ \t.()\/-]*\d){7}))(?!\d)/g, 'Telefon', matches);
                 if (scanTC) collectRegexMatches(text, /(?:^|[^\d])([1-9](?:[ \t.-]*\d){10})(?!\d)/g, 'TCKN', matches);
                 if (scanCustom.length >= 2) {
-                    const customPattern = escapeRegex(scanCustom).replace(/\s+/g, '\\s+');
-                    collectRegexMatches(text, new RegExp(`(${customPattern})`, 'giu'), 'Özel', matches);
+                    collectFoldedLiteralMatches(text, scanCustom, 'Özel', matches);
                 }
 
                 const filteredMatches = matches.filter(match => {
@@ -6274,6 +7574,10 @@
         async function printDocument() {
             if (!currentPdfBytes) return;
             const printWindow = window.open('about:blank');
+            if ((formsDirty || designerFormFields.length) && !await commitAcroFormChanges({ silent: true })) {
+                if (printWindow) printWindow.close();
+                return;
+            }
             if (annotationsDirty && !await commitAnnotationsToPdf({ silent: true })) {
                 if (printWindow) printWindow.close();
                 return;
@@ -6504,6 +7808,11 @@
             if (event.key === 'Escape' && annotationModeActive && !isEditableTarget) {
                 event.preventDefault();
                 await toggleAnnotationMode(false);
+                return;
+            }
+            if (event.key === 'Escape' && formDesignerActive && !isEditableTarget) {
+                event.preventDefault();
+                await toggleFormDesigner(false);
             }
         });
 
